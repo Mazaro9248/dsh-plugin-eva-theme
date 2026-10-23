@@ -1,0 +1,110 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>EVA role attention regression</title></head>
+<body><pre id="RESULT">not-run</pre>
+<script>window.__ModuleLoader__={load(definition){window.definition=definition}};</script><script src="../../lib/client.js"></script>
+<script>
+(async()=>{
+const results=[],check=(name,ok,detail='')=>results.push({name,ok:!!ok,detail}),wait=()=>new Promise(r=>setTimeout(r,20));
+window.addEventListener('unhandledrejection',e=>check('没有未处理的播放拒绝',false,String(e.reason)));
+window.addEventListener('error',e=>check('没有异步异常',false,e.message));
+const store=value=>({value,listeners:new Set(),getSnapshot(){return this.value},subscribe(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn)},set(next){this.value=next;for(const fn of this.listeners)fn()}});
+const entry=(seq,kind='completed',type='turn/end')=>({event:{seq,type,data:{turn:seq,reason:{kind}}}});
+const source=(entries=[])=>{
+ const s=store({entries,revision:0,change:{kind:'replace',entries}});
+ s.publish=(kind,entries)=>s.set({revision:s.value.revision+1,entries:kind==='replace'?entries:[...s.value.entries,...entries],change:{kind,entries}});
+ return s;
+};
+const a=source([entry(1)]),b=source(),child=source(),bindingA={eventSource:a,session:{getSnapshot:()=>({subagent:null})}},bindingB={eventSource:b,session:{getSnapshot:()=>({subagent:null})}};
+const bindings=new Map([['a',bindingA],['b',bindingB],['child',{eventSource:child,session:{getSnapshot:()=>({subagent:{}})}}]]);
+const list=store({byId:{a:{origin:'user'},b:{origin:'user'},child:{origin:'subagent'}}}),status=store(new Map());
+const pending=(key,kind='approval',answerable=true)=>({key,kind,answerable});
+const ask=(key,id='a',kind='approval',answerable=true)=>status.set(new Map([[id,{pendingInteraction:pending(key,kind,answerable)}]]));
+const effects=[],realCreate=document.createElement,plays=[],sources=new Map();let failNext=null,pendingReject=null;
+document.createElement=function(tag,...args){
+ const node=realCreate.call(this,tag,...args);
+ if(tag.toLowerCase()==='audio'){
+  node.load=()=>{};node.pause=()=>{node.dataset.paused='true'};
+  node.play=()=>{
+   const key=node.dataset.pilot+'-'+node.dataset.kind;sources.set(key,node.src);plays.push({key,src:node.src});node.dataset.paused='false';
+   if(failNext==='deferred'){failNext=null;return new Promise((_r,reject)=>pendingReject=reject)}
+   if(failNext){const name=failNext;failNext=null;return Promise.reject(new DOMException('test',name))}
+   return Promise.resolve();
+  };
+ }
+ return node;
+};
+window.fetch=async()=>({ok:true,json:async()=>({ok:true,supported:false,app:null})});
+const effect=fn=>{const stop=fn();effects.push(stop);return stop};
+const ctx={effect,inject(deps,fn){if(deps.includes('uiSession'))fn({sessions:{list,binding:id=>bindings.get(id)},uiSession:{sessionStatus:status},effect});},theme:{overrideTokens(){return()=>{}},setTheme(){}}};
+const stopAll=()=>{for(const stop of effects.splice(0).reverse())stop()};
+const end=()=>document.querySelector('.eva-attention-audio')?.dispatchEvent(new Event('ended'));
+const error=()=>document.querySelector('.eva-attention-audio')?.dispatchEvent(new Event('error'));
+const last=()=>plays.at(-1)?.key;
+try{
+ localStorage.clear();sessionStorage.setItem('dsh-eva-magi-theme:booted','1');
+ const exports=window.definition.factory(()=>{});exports.apply(ctx);const api=window.__EVA_MAGI_THEME__;
+ check('提示音默认开启，面板提供两种试听',api.options.attentionSound===true&&document.querySelectorAll('[data-attention-preview]').length===2);
+ check('读取旧历史和空闲状态不播放完成提醒',plays.length===0);
+ check('订阅宿主审核源与已加载的会话事件，不订阅子智能体',status.listeners.size===1&&a.listeners.size===1&&b.listeners.size===1&&child.listeners.size===0);
+ document.body.setAttribute('data-ds-dark-theme','');ask('1');
+ check('明日香暗色审核播放对应 MP3',last()==='asuka-approval'&&plays.at(-1).src.includes('/dsh-eva-magi/assets/audio/'));
+ const sound=document.querySelector('.eva-attention-audio');check('提示音只有一个隐藏音源，不加入界面阅读流',sound.hidden&&sound.getAttribute('aria-hidden')==='true'&&document.querySelectorAll('.eva-attention-audio').length===1);
+ const count=plays.length;ask('1');status.set(new Map(status.value));document.body.removeAttribute('data-ds-dark-theme');
+ check('同一审核状态更新或切换主题不重复播放',plays.length===count);
+ end();ask('1');check('同一条审核播完后也不重复',plays.length===count);
+ ask('2');check('绫波丽亮色的新审核使用另一段 MP3',last()==='rei-approval'&&plays.at(-1).src!==sources.get('asuka-approval'));
+ status.set(new Map());check('审核处理完后立即停止尚未播完的提醒',sound.dataset.paused==='true'&&!sound.hasAttribute('src'));
+ ask('question','a','question');ask('already answered','a','approval',false);check('提问和已回答记录不触发审核提醒',plays.length===count+1);
+ status.set(new Map());
+ a.publish('replace',[entry(9)]);a.publish('prepend',[entry(3)]);check('初始载入、翻阅历史和重连替换不播报',plays.length===count+1);
+ a.publish('append',[entry(10,'completed','tool/end')]);a.publish('append',[entry(11,'cancelled')]);a.publish('append',[entry(12,'error')]);a.publish('append',[entry(13,'max-tokens')]);
+ check('工具完成、取消、失败、令牌上限均不当作任务正常完成',plays.length===count+1);
+ a.publish('append',[entry(14)]);check('当前主会话正常结束播放绫波丽完成语音',last()==='rei-complete');end();
+ const once=plays.length;a.publish('append',[entry(14)]);check('同一结束事件重复推送只播一次',plays.length===once);
+ document.body.setAttribute('data-ds-dark-theme','');b.publish('append',[entry(1)]);check('另一个已加载会话正常结束播放明日香完成语音',last()==='asuka-complete');
+ a.publish('append',[entry(15)]);ask('priority');check('并行完成与审核串行排队，不叠加音源',plays.length===once+1&&document.querySelectorAll('.eva-attention-audio').length===1);
+ end();check('排队的人工审核优先于完成提醒',last()==='asuka-approval');status.set(new Map());check('审核解除后继续未过期的完成提醒',last()==='asuka-complete');end();
+ const beforeChild=plays.length;child.publish('append',[entry(1)]);check('子智能体结束不重复提醒父任务',plays.length===beforeChild);
+ api.set('attentionSound',false);ask('muted');a.publish('append',[entry(16)]);
+ check('关闭开关停止音源且审核与完成都不播放',plays.length===beforeChild&&!sound.hasAttribute('src')&&[...document.querySelectorAll('[data-attention-preview]')].every(n=>n.disabled));
+ api.set('attentionSound',true);check('重新开启不补播静音期间的历史提醒',plays.length===beforeChild);
+ status.set(new Map());
+ failNext='NotAllowedError';ask('blocked');await wait();const blocked=plays.length;
+ check('浏览器阻止自动播放时不循环重试',blocked===beforeChild+1);
+ document.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}));await wait();check('下一次用户操作可重试仍待审核的提示',plays.length===blocked+1&&last()==='asuka-approval');status.set(new Map());
+ failNext='NotAllowedError';ask('resolved blocked');await wait();status.set(new Map());const resolved=plays.length;document.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+ check('审核已处理后用户操作不播放过期提醒',plays.length===resolved);
+ failNext='deferred';ask('late reject');status.set(new Map());a.publish('append',[entry(17)]);pendingReject(new DOMException('late','NotAllowedError'));await wait();
+ check('旧 play 拒绝不会影响新完成语音',last()==='asuka-complete'&&sound.dataset.paused==='false');end();
+ failNext='NotSupportedError';ask('bad audio');await wait();a.publish('append',[entry(18)]);check('音频错误不阻塞后续完成提醒或宿主操作',last()==='asuka-complete');error();status.set(new Map());
+ document.querySelector('[data-attention-preview="approval"]').click();await wait();check('审核试听使用当前主题语音且显示真实播放状态',last()==='asuka-approval'&&document.querySelector('[data-attention-preview="approval"]').getAttribute('aria-pressed')==='true');
+ document.body.removeAttribute('data-ds-dark-theme');document.querySelector('[data-attention-preview="complete"]').click();check('切换试听直接替换上一段并使用绫波丽完成语音',last()==='rei-complete');end();
+ document.querySelector('[data-attention-preview="complete"]').click();await wait();const stoppedPreview=plays.length;document.querySelector('[data-attention-preview="complete"]').click();check('再次点击试听可停止，不重新开始语音',plays.length===stoppedPreview&&!sound.hasAttribute('src')&&document.querySelector('[data-attention-preview="complete"]').getAttribute('aria-pressed')==='false');
+ const boot=document.createElement('div');boot.className='eva-boot';document.body.appendChild(boot);await wait();const beforeBoot=plays.length;
+ a.publish('append',[entry(19)]);ask('boot approval');check('启动语音期间审核与完成提醒暂缓，避免叠音',plays.length===beforeBoot);
+ status.set(new Map());boot.remove();await wait();check('进入聊天后只播放仍有效的完成提醒',plays.length===beforeBoot+1&&last()==='rei-complete');end();
+ a.publish('append',[entry(20)]);const boot2=document.createElement('div');boot2.className='eva-boot';document.body.appendChild(boot2);await wait();
+ check('重播启动时暂停正在播放的提醒',sound.dataset.paused==='true');boot2.remove();await wait();end();
+ ask('hold');a.publish('append',[entry(21)]);a.publish('replace',[entry(21)]);status.set(new Map());const replaced=plays.length;end();
+ check('事件流替换后丢弃旧代际排队提醒',plays.length===replaced);
+ list.set({byId:{a:{origin:'user'},child:{origin:'subagent'}}});check('会话移除时释放事件订阅',b.listeners.size===0);
+ const generationSource=source([entry(30)]);bindings.set('a',{eventSource:generationSource,session:{getSnapshot:()=>({subagent:null})}});list.set({...list.value});
+ check('绑定更新释放旧代际，重新载入的历史不触发',a.listeners.size===0&&generationSource.listeners.size===1&&plays.length===replaced);
+ generationSource.publish('append',[entry(31)]);check('新代际的真实结束继续提醒',last()==='rei-complete');end();
+ // 真实浏览器解码四份随包 MP3，确保并非只有选择映射正确。
+ document.createElement=realCreate;
+ const decoded=await Promise.all([...sources].map(async([key,src])=>{
+  const media=realCreate.call(document,'audio');media.preload='metadata';
+  try{return await new Promise(resolve=>{const t=setTimeout(()=>resolve([key,0]),3000);media.onloadedmetadata=()=>{clearTimeout(t);resolve([key,media.duration])};media.onerror=()=>{clearTimeout(t);resolve([key,0])};media.src=src;media.load()})}
+  finally{media.removeAttribute('src');media.load()}
+ }));
+ for(const [key,duration]of decoded)check(key+'：随包原始 MP3 可真实解码且时长合理',duration>2&&duration<5,String(duration));
+ check('四份主题提示音来源各不相同',sources.size===4&&new Set(sources.values()).size===4);
+ ask('cleanup');const disposedPlays=plays.length;stopAll();
+ check('卸载停止并移除提示音、所有状态和事件订阅',!document.querySelector('.eva-attention-audio')&&!sound.hasAttribute('src')&&status.listeners.size===0&&list.listeners.size===0&&generationSource.listeners.size===0);
+ ask('after unload');generationSource.publish('append',[entry(32)]);document.dispatchEvent(new PointerEvent('pointerdown'));
+ check('卸载后的事件与用户操作不再播放',plays.length===disposedPlays);
+}catch(e){check('提示音回归未发生异常',false,String(e.stack||e))}
+finally{document.createElement=realCreate;stopAll()}
+document.getElementById('RESULT').textContent=JSON.stringify({total:results.length,failed:results.filter(r=>!r.ok).length,failures:results.filter(r=>!r.ok),results});
+})();
+</script></body></html>

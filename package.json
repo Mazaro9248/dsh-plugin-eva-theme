@@ -1,7 +1,7 @@
 {
-  "name": "dsh-eva-magi-theme",
-  "version": "0.22.0",
-  "description": "EVA / MAGI 主题皮肤：把 NERV 中央教条区的界面语言装进 DSH Web GUI（--dsw-* 令牌层覆盖 + CRT 扫描线 / 硬边 / 等宽数字，明朝体汉字标题）",
+  "name": "dsh-plugin-eva-theme",
+  "version": "0.50.1",
+  "description": "DSH / DeepSeek Harness EVA 主题插件：明日香暗色、绫波丽亮色，包含驾驶员选择、启动语音、时钟和音乐播放器",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -11,7 +11,11 @@
     "eva",
     "magi",
     "nerv",
-    "evangelion"
+    "evangelion",
+    "dsh-desktop",
+    "dsh-theme",
+    "asuka",
+    "ayanami-rei"
   ],
   "type": "module",
   "main": "lib/index.js",
@@ -22,12 +26,26 @@
   },
   "files": [
     "lib",
-    "tools",
-    "docs",
+    "assets/animations",
+    "assets/audio",
+    "assets/images",
+    "assets/svg",
+    "assets/workers",
+    "assets/manifest.json",
     "cordis.patch.yml",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE.md",
+    "docs/assets.md",
+    "docs/boot-music.md",
+    "docs/architecture.md",
+    "docs/performance.md",
+    "docs/performance",
+    "docs/prompts",
+    "CONTRIBUTING.md",
+    "docs/release.md",
+    "docs/theme-tokens.md"
   ],
   "dsh": {
     "bundle": {
@@ -39,15 +57,23 @@
     }
   },
   "scripts": {
-    "docs": "node tools/gen-tokens-doc.mjs",
-    "check": "node --check lib/client.js && node --check lib/index.js && node --check lib/host-balance.mjs && node tools/gen-tokens-doc.mjs --check",
-    "test": "npm run test:manifest && npm run test:tokens && npm run test:contrast && npm run test:host && npm run test:client",
-    "test:manifest": "node tools/verify-manifest.mjs",
-    "test:tokens": "node tools/verify-tokens.mjs",
-    "test:contrast": "node tools/verify-contrast.mjs",
-    "test:client": "node tools/run-client-harness.mjs",
+    "docs": "node tools/build-docs.mjs",
+    "check": "node tools/build-assets.mjs --check && node tests/verify-gif-timing.mjs && node --check lib/client.js && node --check < lib/system-nowplaying.jxa && node --check lib/host-assets.mjs && node --check lib/index.js && node --check lib/host-balance.mjs && node --check lib/host-nowplaying.mjs && node tools/build-docs.mjs --check && node tests/verify-docs.mjs",
+    "test": "npm run test:manifest && npm run test:tokens && npm run test:contrast && npm run test:host && npm run test:assets && npm run test:client && npm run test:attention && npm run test:boot && npm run test:layout",
+    "test:manifest": "node tests/verify-manifest.mjs",
+    "test:tokens": "node tests/verify-tokens.mjs",
+    "test:contrast": "node tests/verify-contrast.mjs",
+    "test:client": "node tools/run-browser-tests.mjs",
+    "test:attention": "node tools/run-browser-tests.mjs --attention",
     "prepublishOnly": "npm run check && npm test",
-    "test:host": "node tools/verify-host.mjs"
+    "test:host": "node tests/verify-host.mjs && node tests/verify-host-routes.mjs",
+    "test:layout": "node tools/run-layout-tests.mjs",
+    "test:boot": "node tools/run-layout-tests.mjs --boot",
+    "build": "node tools/build-assets.mjs && node tools/build-docs.mjs",
+    "test:assets": "node tests/verify-assets.mjs && node tests/verify-contours.mjs",
+    "preview": "node tools/preview.mjs",
+    "perf:boot": "node tools/measure-boot.mjs",
+    "release": "node tools/package-release.mjs"
   },
   "engines": {
     "node": "^22.19.0 || >=24"
@@ -57,11 +83,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/seaison/dsh-eva-ui.git"
+    "url": "git+https://github.com/seaison/dsh-plugin-eva-theme.git"
   },
-  "homepage": "https://github.com/seaison/dsh-eva-ui#readme",
+  "homepage": "https://github.com/seaison/dsh-plugin-eva-theme#readme",
   "bugs": {
-    "url": "https://github.com/seaison/dsh-eva-ui/issues"
+    "url": "https://github.com/seaison/dsh-plugin-eva-theme/issues"
   },
   "license": "MIT"
 }

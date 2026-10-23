@@ -1,0 +1,46 @@
+/* macOS 系统媒体桥。只读指定元数据，控制只接受固定动作；不请求辅助功能权限。
+ * MRNowPlayingRequest 接口参考：
+ * https://github.com/nohackjustnoobb/media-remote/blob/master/assets/nowPlaying.jxa
+ * MediaRemote 是系统私有接口，不能使用时由宿主回退到 Apple Music / Spotify。
+ */
+ObjC.import("Foundation");
+ObjC.import("AppKit");
+function run(argv) {
+  const actions = { playpause: 2, next: 4, previous: 5 };
+  const action = argv[0] || "read";
+  if (action !== "read" && !Object.prototype.hasOwnProperty.call(actions, action)) return JSON.stringify({ ok: false, code: "ACTION" });
+  try {
+    $.NSBundle.bundleWithPath("/System/Library/PrivateFrameworks/MediaRemote.framework").load;
+    const request = $.NSClassFromString("MRNowPlayingRequest");
+    const value = (get) => { try { const v = ObjC.unwrap(get()); return v === undefined ? null : v; } catch (_) { return null; } };
+    const client = request.localNowPlayingPlayerPath.client;
+    const bundleId = value(() => client.parentApplicationBundleIdentifier) || value(() => client.bundleIdentifier);
+    if (action !== "read") {
+      if (!bundleId) return JSON.stringify({ ok: false, code: "NO_APP" });
+      // 在发送动作前直接核对媒体源，不依赖宿主之前读取的缓存。
+      if (argv[1] && argv[1] !== bundleId) return JSON.stringify({ ok: false, code: "SOURCE_CHANGED" });
+      ObjC.bindFunction("MRMediaRemoteSendCommand", ["bool", ["int", "id"]]);
+      const sent = $.MRMediaRemoteSendCommand(actions[action], $({}));
+      return JSON.stringify({ ok: Boolean(sent), code: sent ? null : "CONTROL_UNAVAILABLE", bundleId: bundleId });
+    }
+    const info = request.localNowPlayingItem.nowPlayingInfo;
+    const field = (name) => value(() => info.objectForKey("kMRMediaRemoteNowPlayingInfo" + name));
+    const playing = Boolean(request.localIsPlaying);
+    let app = bundleId;
+    if (bundleId) {
+      const running = $.NSRunningApplication.runningApplicationsWithBundleIdentifier(bundleId);
+      app = value(() => running.objectAtIndex(0).localizedName) || bundleId;
+    }
+    const number = (v) => typeof v === "number" && isFinite(v) && v >= 0 ? v : 0;
+    const title = field("Title");
+    const duration = number(field("Duration"));
+    let position = number(field("ElapsedTime"));
+    const timestamp = value(() => info.objectForKey("kMRMediaRemoteNowPlayingInfoTimestamp").timeIntervalSince1970);
+    const rate = number(field("PlaybackRate"));
+    if (playing && typeof timestamp === "number") position += Math.max(0, Date.now() / 1000 - timestamp) * (rate || 1);
+    if (duration) position = Math.min(duration, position);
+    return JSON.stringify({ ok: true, supported: true, source: "system", bundleId: bundleId,
+      app: bundleId && title ? app : null, playing: playing, state: playing ? "playing" : "paused",
+      title: typeof title === "string" ? title : "", artist: field("Artist") || "", album: field("Album") || "", duration: duration, position: position });
+  } catch (_) { return JSON.stringify({ ok: false, code: "SYSTEM_MEDIA_UNAVAILABLE" }); }
+}

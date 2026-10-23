@@ -1,0 +1,83 @@
+{
+  "clientBytes": 230864,
+  "samples": [
+    {
+      "width": 1280,
+      "height": 800,
+      "run": 0,
+      "phase": "loading",
+      "renderer": "worker",
+      "handlerMs": 4.599999999627471,
+      "firstFrameMs": 13.599999999627471,
+      "p95FrameMs": 16.80000000000109,
+      "maxFrameMs": 16.80000000000109,
+      "longTaskCount": 0,
+      "maxLongTaskMs": 0
+    },
+    {
+      "width": 1280,
+      "height": 800,
+      "run": 1,
+      "phase": "loading",
+      "renderer": "worker",
+      "handlerMs": 3,
+      "firstFrameMs": 15.400000000372529,
+      "p95FrameMs": 16.700000000000728,
+      "maxFrameMs": 16.80000000000109,
+      "longTaskCount": 0,
+      "maxLongTaskMs": 0
+    },
+    {
+      "width": 1280,
+      "height": 800,
+      "run": 2,
+      "phase": "loading",
+      "renderer": "worker",
+      "handlerMs": 3.599999999627471,
+      "firstFrameMs": 15.5,
+      "p95FrameMs": 16.799999999999272,
+      "maxFrameMs": 16.799999999999272,
+      "longTaskCount": 0,
+      "maxLongTaskMs": 0
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "run": 0,
+      "phase": "loading",
+      "renderer": "worker",
+      "handlerMs": 4.400000000372529,
+      "firstFrameMs": 14.099999999627471,
+      "p95FrameMs": 16.700000000000728,
+      "maxFrameMs": 16.80000000000109,
+      "longTaskCount": 0,
+      "maxLongTaskMs": 0
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "run": 1,
+      "phase": "loading",
+      "renderer": "worker",
+      "handlerMs": 3.600000001490116,
+      "firstFrameMs": 15.600000001490116,
+      "p95FrameMs": 16.799999999999272,
+      "maxFrameMs": 16.799999999999272,
+      "longTaskCount": 0,
+      "maxLongTaskMs": 0
+    },
+    {
+      "width": 1920,
+      "height": 1080,
+      "run": 2,
+      "phase": "loading",
+      "renderer": "worker",
+      "handlerMs": 3.300000000745058,
+      "firstFrameMs": 15.700000001117587,
+      "p95FrameMs": 16.700000000000728,
+      "maxFrameMs": 16.80000000000109,
+      "longTaskCount": 0,
+      "maxLongTaskMs": 0
+    }
+  ]
+}

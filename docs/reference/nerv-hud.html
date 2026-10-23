@@ -1,0 +1,1193 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NERV CENTRAL DOGMA // MAGI SYSTEM 0471</title>
+<style>
+/* ============================================================
+   NERV HUD — 设计语言实验稿
+   配色 / 排版 / 形状 / 动效 全部收敛到 CSS 变量，
+   改一处即可评估整套语言的走向。
+   ============================================================ */
+
+:root{
+  /* --- 底色：CRT 余晖黑，不用纯黑 --- */
+  --bg:        #08090a;
+  --bg-2:      #0d0f11;
+  --panel:     rgba(255,255,255,.014);
+
+  /* --- 线：发丝线是这套语言的骨架 --- */
+  --line:      rgba(255,122,26,.34);
+  --line-soft: rgba(255,122,26,.15);
+  --grid:      rgba(255,122,26,.07);
+
+  /* --- 主色 / 数据色 / 警戒色 --- */
+  --accent:    #ff6a00;
+  --accent-dk: #b24500;
+  --data:      #7cff4f;
+  --warn:      #ffcc00;
+  --alarm:     #ff1e1e;
+  --ink:       #e8e4dc;
+  --ink-dim:   rgba(232,228,220,.55);
+  --ink-faint: rgba(232,228,220,.28);
+
+  --glow: 0 0 6px rgba(255,106,0,.45);
+
+  /* 字体分三层：等宽数据 / 拉丁标题 / CJK。
+     font-family 是按「字符」逐级回退的，所以把 --cjk 放在拉丁字体之后，
+     拉丁数字仍吃 Menlo / Helvetica Neue，只有汉字落到 --cjk。
+     EVA 的「明朝体」= Matisse EB（Fontworks 商业字体），
+     本机等价替代 = Hiragino Mincho ProN W6（实测可用）。 */
+  --mincho: "Hiragino Mincho ProN", "Hiragino Mincho Pro", YuMincho, "Yu Mincho", "Songti SC", serif;
+  --gothic: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", "PingFang SC", sans-serif;
+  --cjk: var(--mincho);
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Roboto Mono", var(--cjk), monospace;
+  --disp: "Helvetica Neue", Helvetica, Arial, var(--cjk), sans-serif;
+
+  --chamfer: 10px;
+}
+
+/* 主题变体：让「橙 / 橙绿 / 单色」三种走向可直接对比 */
+body[data-theme="nerv"]{
+  --accent:#ff8a1f; --accent-dk:#a34d00; --data:#39ff14;
+  --line: rgba(255,138,31,.36); --line-soft: rgba(255,138,31,.16); --grid: rgba(120,255,80,.06);
+}
+body[data-theme="mono"]{
+  --accent:#d8d8d8; --accent-dk:#8a8a8a; --data:#ffffff;
+  --warn:#c9c9c9; --alarm:#ff5a5a;
+  --line: rgba(216,216,216,.30); --line-soft: rgba(216,216,216,.14); --grid: rgba(216,216,216,.06);
+  --glow: 0 0 6px rgba(216,216,216,.35);
+}
+/* 漢字の書体を切り替える（明朝 ⇄ ゴシック） */
+body[data-font="gothic"]{ --cjk: var(--gothic); }
+
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #101315 0%, var(--bg) 60%),
+    var(--bg);
+  color:var(--ink);
+  font-family:var(--mono);
+  font-size:12px;
+  letter-spacing:.04em;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ============================================================
+   覆盖层：扫描线 / 暗角 / 噪点 —— 这三层决定了「CRT 感」
+   ============================================================ */
+.ov{ position:fixed; inset:0; pointer-events:none; z-index:50; }
+.ov.scan{
+  background:repeating-linear-gradient(to bottom,
+    rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px,
+    rgba(0,0,0,.30) 3px, rgba(0,0,0,.30) 4px);
+  mix-blend-mode:multiply;
+}
+.ov.vig{ background:radial-gradient(110% 85% at 50% 45%, rgba(0,0,0,0) 40%, rgba(0,0,0,.75) 100%); }
+.ov.noise{
+  opacity:.05; mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='140' height='140' filter='url(%23n)'/></svg>");
+  animation:noiseShift .5s steps(4) infinite;
+}
+@keyframes noiseShift{
+  0%{background-position:0 0}    25%{background-position:-20px 10px}
+  50%{background-position:15px -18px} 75%{background-position:-12px -14px}
+  100%{background-position:0 0}
+}
+/* 整屏微闪 + 偶发水平撕裂 */
+.flicker{ animation:flick 3.7s steps(1) infinite; }
+@keyframes flick{
+  0%,96%{ opacity:1 } 96.5%{ opacity:.86 } 97%{ opacity:1 } 98.4%{ opacity:.92 } 98.8%{ opacity:1 }
+}
+.torn{
+  position:fixed; left:0; right:0; height:26px; z-index:60; pointer-events:none;
+  background:linear-gradient(90deg, transparent, rgba(255,106,0,.10) 20%, rgba(124,255,79,.08) 55%, transparent);
+  opacity:0; mix-blend-mode:screen;
+}
+.torn.go{ animation:tear .55s steps(3) 1; }
+@keyframes tear{
+  0%{ opacity:0; top:22% } 20%{ opacity:1; top:31% } 40%{ opacity:.5; top:30% }
+  60%{ opacity:1; top:63% } 100%{ opacity:0; top:64% }
+}
+
+/* 警戒闪光 */
+.flash{ position:fixed; inset:0; z-index:45; pointer-events:none; opacity:0;
+  background:radial-gradient(120% 90% at 50% 50%, rgba(255,30,30,.10), rgba(255,30,30,.34)); }
+body[data-alert="2"] .flash{ animation:alarmPulse 1.15s ease-in-out infinite; }
+body[data-alert="3"] .flash{ animation:alarmPulse .5s ease-in-out infinite; }
+@keyframes alarmPulse{ 0%,100%{opacity:0} 50%{opacity:1} }
+body[data-alert="1"] .flash{ opacity:.18; background:radial-gradient(120% 90% at 50% 50%, rgba(255,204,0,.05), rgba(255,204,0,.20)); }
+
+/* ============================================================
+   骨架
+   ============================================================ */
+.crt{ position:relative; height:100%; display:flex; flex-direction:column; padding:10px; gap:9px; z-index:10; }
+
+.topbar{
+  display:flex; align-items:center; gap:16px;
+  border:1px solid var(--line); background:var(--panel);
+  padding:8px 12px; position:relative;
+}
+.topbar::after{ /* 顶部 2px 主色压力线 */
+  content:""; position:absolute; left:-1px; right:-1px; top:-1px; height:2px;
+  background:linear-gradient(90deg, var(--accent), transparent 65%);
+}
+.emblem{ display:flex; align-items:center; gap:10px; }
+.emblem svg{ display:block; }
+.wordmark{ font-family:var(--disp); font-size:19px; font-weight:700; letter-spacing:.42em; color:var(--accent); text-shadow:var(--glow); }
+.topbar .meta{ margin-left:auto; display:flex; gap:18px; align-items:center; color:var(--ink-dim); font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; }
+.topbar .meta b{ color:var(--ink); font-weight:500; }
+
+/* 标签：反白块 + 英文副标 —— 这套语言的核心排版动作 */
+.tag{
+  display:inline-flex; align-items:baseline; gap:8px;
+  background:var(--accent); color:#0a0a0a;
+  font-family:var(--disp); font-weight:700; font-size:11px;
+  letter-spacing:.2em; padding:3px 8px; text-transform:uppercase;
+}
+.tag small{ font-family:var(--mono); font-weight:400; font-size:9px; letter-spacing:.1em; opacity:.7; }
+.tag--ghost{ background:transparent; color:var(--accent); border:1px solid var(--line); }
+
+.hud{
+  flex:1; min-height:0; display:grid; gap:9px;
+  grid-template-columns: minmax(250px, 300px) minmax(300px, 1fr) minmax(310px, 372px);
+  grid-template-rows: minmax(0,1fr) auto minmax(96px, 118px);
+  grid-template-areas:
+    "sync center magi"
+    "bar  bar    bar"
+    "log  log    log";
+}
+
+.panel{
+  position:relative; border:1px solid var(--line); background:var(--panel);
+  padding:9px 11px 11px; min-height:0; display:flex; flex-direction:column; gap:8px;
+}
+/* 四角 L 型标记：比圆角更硬，也更「仪表」 */
+.panel::before,.panel::after{
+  content:""; position:absolute; width:9px; height:9px; pointer-events:none;
+  border:1px solid var(--accent); opacity:.55;
+}
+.panel::before{ left:-1px; top:-1px; border-right:0; border-bottom:0; }
+.panel::after{ right:-1px; bottom:-1px; border-left:0; border-top:0; }
+
+.p-head{ display:flex; align-items:center; gap:10px; flex:0 0 auto; }
+.p-head .rule{ flex:1; height:1px; background:repeating-linear-gradient(90deg,var(--line) 0 3px, transparent 3px 6px); }
+.p-title{ font-family:var(--disp); font-size:12px; font-weight:700; letter-spacing:.24em; color:var(--accent); text-transform:uppercase; white-space:nowrap; }
+.p-jp{ font-size:10.5px; color:var(--ink-dim); letter-spacing:.18em; }
+
+/* ============================================================
+   左：同调率
+   ============================================================ */
+.p-sync{ grid-area:sync; }
+.gauge{ position:relative; display:grid; place-items:center; flex:0 0 auto; }
+.gauge svg{ display:block; width:100%; max-width:236px; height:auto; }
+.gauge .track{ stroke:var(--line-soft); }
+.gauge .prog{ stroke:var(--data); filter:drop-shadow(0 0 5px rgba(124,255,79,.6)); transition:stroke .3s; }
+.gauge .tick{ stroke:var(--line); }
+.gauge .tick.major{ stroke:var(--accent); }
+.gauge .axis{ stroke:var(--line); stroke-dasharray:2 3; }
+
+.gauge .readout{
+  position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  padding-bottom:26px; pointer-events:none;
+}
+.readout .num{
+  font-family:var(--disp); font-weight:700; font-size:52px; line-height:.92;
+  letter-spacing:.01em; color:var(--data); text-shadow:0 0 14px rgba(124,255,79,.35);
+  font-variant-numeric:tabular-nums; transition:color .3s, text-shadow .3s;
+}
+.readout .num i{ font-style:normal; font-size:20px; opacity:.75; margin-left:2px; }
+.readout .lbl{ font-size:9.5px; letter-spacing:.3em; color:var(--ink-dim); text-transform:uppercase; margin-top:5px; }
+.readout .jp{ font-size:11px; letter-spacing:.3em; color:var(--accent); margin-top:2px; }
+
+.syncctl{ display:flex; flex-direction:column; gap:6px; }
+.dial{ display:flex; align-items:center; gap:9px; }
+.dial label{ font-size:9.5px; letter-spacing:.16em; color:var(--ink-faint); width:52px; text-transform:uppercase; }
+input[type=range]{
+  -webkit-appearance:none; appearance:none; flex:1; height:16px; background:transparent; cursor:crosshair;
+}
+input[type=range]::-webkit-slider-runnable-track{ height:2px; background:var(--line); }
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:9px; height:16px; margin-top:-7px; background:var(--accent);
+  border-radius:0; box-shadow:var(--glow);
+}
+input[type=range]::-moz-range-track{ height:2px; background:var(--line); }
+input[type=range]::-moz-range-thumb{ width:9px; height:16px; border:0; border-radius:0; background:var(--accent); }
+
+/* 数据行：等宽对齐，右值永远对齐到同一列 */
+.rows{ display:flex; flex-direction:column; gap:4px; }
+.row{ display:flex; align-items:center; gap:8px; font-size:10.5px; border-bottom:1px dotted var(--line-soft); padding-bottom:3px; }
+.row .k{ color:var(--ink-faint); letter-spacing:.14em; text-transform:uppercase; }
+.row .v{ margin-left:auto; color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:.08em; }
+.row .v.hot{ color:var(--accent); }
+.row .v.ok{ color:var(--data); }
+.row .v.bad{ color:var(--alarm); }
+
+/* 条形读数 */
+.bars{ display:flex; flex-direction:column; gap:5px; }
+.bar{ display:grid; grid-template-columns:64px 1fr 42px; align-items:center; gap:7px; font-size:9.5px; color:var(--ink-faint); letter-spacing:.12em; }
+.bar .fill{ height:6px; background:var(--line-soft); position:relative; overflow:hidden; }
+.bar .fill span{ position:absolute; inset:0 auto 0 0; background:var(--accent); opacity:.85; transition:width .25s ease-out; }
+.bar .fill span.g{ background:var(--data); }
+.bar .val{ text-align:right; color:var(--ink-dim); font-variant-numeric:tabular-nums; }
+
+/* ============================================================
+   中：雷达 / 警戒灯 / 倒计时
+   ============================================================ */
+.p-center{ grid-area:center; }
+.radarwrap{ position:relative; flex:1; min-height:150px; border:1px solid var(--line-soft); background:
+  linear-gradient(var(--grid) 1px, transparent 1px) 0 0/22px 22px,
+  linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0/22px 22px,
+  radial-gradient(70% 70% at 50% 50%, rgba(255,106,0,.05), transparent 70%);
+}
+#radar{ position:absolute; inset:0; width:100%; height:100%; }
+.radarwrap .corner{
+  position:absolute; top:5px; left:7px; font-size:9px; letter-spacing:.16em; color:var(--ink-faint);
+}
+.radarwrap .corner.r{ left:auto; right:7px; text-align:right; }
+.radarwrap .corner.b{ top:auto; bottom:5px; }
+.radarwrap .corner.br{ top:auto; bottom:5px; left:auto; right:7px; text-align:right; }
+
+.lamprow{ display:flex; align-items:center; gap:12px; flex:0 0 auto; }
+.lamp{
+  width:52px; height:52px; border-radius:50%; flex:0 0 auto;
+  border:1px solid var(--line); display:grid; place-items:center;
+  background:radial-gradient(circle at 50% 50%, rgba(255,255,255,.05), transparent 60%);
+  position:relative;
+}
+.lamp i{ width:30px; height:30px; border-radius:50%; background:var(--data); opacity:.28; box-shadow:0 0 14px currentColor; color:var(--data); transition:background .2s,opacity .2s; }
+body[data-alert="1"] .lamp i{ background:var(--warn); color:var(--warn); opacity:1; }
+body[data-alert="2"] .lamp i{ background:var(--alarm); color:var(--alarm); opacity:1; animation:blink .9s steps(1) infinite; }
+body[data-alert="3"] .lamp i{ background:var(--alarm); color:var(--alarm); opacity:1; animation:blink .34s steps(1) infinite; }
+@keyframes blink{ 0%,55%{opacity:1} 56%,100%{opacity:.12} }
+.lamp .ring{ position:absolute; inset:-1px; border-radius:50%; border:1px solid var(--line); }
+body[data-alert="2"] .lamp .ring,body[data-alert="3"] .lamp .ring{ animation:pulseRing 1s ease-out infinite; }
+@keyframes pulseRing{ 0%{ transform:scale(1); opacity:.9 } 100%{ transform:scale(1.45); opacity:0 } }
+
+.lampinfo{ flex:1; min-width:0; }
+/* 警戒表示は EVA のサブタイトルカードと同じ組み方：
+   小さなラテンのキャプション ＋ 大きな明朝体の漢字見出し */
+.lampinfo .big{
+  font-family:var(--disp); font-weight:400; letter-spacing:.3em; font-size:11.5px; line-height:1.2;
+  color:var(--ink-faint); text-transform:uppercase; transition:color .2s;
+}
+body[data-alert="1"] .lampinfo .big{ color:var(--warn); opacity:.8; }
+body[data-alert="2"] .lampinfo .big,body[data-alert="3"] .lampinfo .big{ color:var(--alarm); opacity:.85; }
+.lampinfo .jp{
+  color:var(--data); font-size:21px; font-weight:600; letter-spacing:.22em; line-height:1.18;
+  margin-top:3px; transition:color .2s;
+}
+body[data-alert="1"] .lampinfo .jp{ color:var(--warn); }
+body[data-alert="2"] .lampinfo .jp,body[data-alert="3"] .lampinfo .jp{ color:var(--alarm); text-shadow:0 0 14px rgba(255,30,30,.4); }
+
+.countdown{ display:flex; align-items:baseline; gap:10px; flex:0 0 auto; }
+.countdown .cd-num{
+  font-family:var(--disp); font-weight:700; font-size:30px; letter-spacing:.06em;
+  font-variant-numeric:tabular-nums; color:var(--accent); text-shadow:var(--glow);
+}
+.countdown .cd-lbl{ font-size:9.5px; letter-spacing:.2em; color:var(--ink-faint); text-transform:uppercase; }
+
+.hazard{ height:8px; flex:0 0 auto; background:repeating-linear-gradient(45deg,
+  var(--warn) 0 7px, #0a0a0a 7px 14px); opacity:.5; }
+body[data-alert="2"] .hazard,body[data-alert="3"] .hazard{ opacity:.95; animation:hazMove 1.4s linear infinite; }
+@keyframes hazMove{ to{ background-position:28px 0 } }
+
+/* 状态方块矩阵：小、稀、暗底为主 —— 它是背景噪声，不是主角 */
+.matrix{ display:grid; grid-template-columns:repeat(72,1fr); gap:2px; flex:0 0 auto; }
+.matrix i{ height:9px; background:var(--line-soft); opacity:.55; }
+.matrix i.on{ background:var(--data); opacity:.85; box-shadow:0 0 3px rgba(124,255,79,.45); }
+.matrix i.hot{ background:var(--accent); opacity:.9; box-shadow:var(--glow); }
+
+/* ============================================================
+   右：MAGI 三贤人
+   ============================================================ */
+.p-magi{ grid-area:magi; }
+.magi-q{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+select{
+  flex:1; min-width:140px; background:#0b0d0e; color:var(--ink); font-family:var(--mono); font-size:11px;
+  border:1px solid var(--line); padding:5px 7px; letter-spacing:.08em; border-radius:0;
+}
+select:focus{ outline:1px solid var(--accent); outline-offset:0; }
+
+.btn{
+  font-family:var(--disp); font-weight:700; font-size:10.5px; letter-spacing:.18em; text-transform:uppercase;
+  background:transparent; color:var(--accent); border:1px solid var(--line);
+  padding:6px 11px; cursor:pointer; border-radius:0;
+  clip-path:polygon(var(--chamfer) 0, 100% 0, 100% calc(100% - var(--chamfer)), calc(100% - var(--chamfer)) 100%, 0 100%, 0 var(--chamfer));
+  transition:background .12s, color .12s, box-shadow .12s;
+}
+.btn:hover{ background:var(--accent); color:#0a0a0a; box-shadow:var(--glow); }
+.btn:active{ transform:translateY(1px); }
+.btn.solid{ background:var(--accent); color:#0a0a0a; }
+.btn.solid:hover{ background:#fff; border-color:#fff; }
+.btn[disabled]{ opacity:.4; cursor:not-allowed; }
+.btn.on{ background:var(--accent); color:#0a0a0a; }
+.btn.danger{ color:var(--alarm); border-color:rgba(255,30,30,.45); }
+.btn.danger:hover,.btn.danger.on{ background:var(--alarm); color:#0a0a0a; box-shadow:0 0 8px rgba(255,30,30,.6); }
+.btn.sm{ padding:4px 8px; font-size:9.5px; letter-spacing:.14em; }
+
+.magi-cores{ display:flex; flex-direction:column; gap:6px; flex:0 0 auto; }
+.core{
+  border:1px solid var(--line-soft); padding:6px 8px; display:grid;
+  grid-template-columns: 1fr auto; gap:2px 8px; align-items:center; position:relative; overflow:hidden;
+  background:linear-gradient(90deg, rgba(255,106,0,.035), transparent 60%);
+}
+.core .nm{ font-family:var(--disp); font-weight:700; letter-spacing:.2em; font-size:12px; color:var(--ink); }
+.core .sub{ grid-column:1; font-size:9px; letter-spacing:.14em; color:var(--ink-faint); text-transform:uppercase; }
+.core .vote{
+  grid-row:1 / span 2; grid-column:2; font-family:var(--disp); font-weight:700; font-size:15px; letter-spacing:.14em;
+  color:var(--ink-faint); min-width:62px; text-align:right; transition:color .1s;
+}
+.core .timeline{ grid-column:1 / -1; height:2px; background:var(--line-soft); margin-top:4px; position:relative; }
+.core .timeline span{ position:absolute; inset:0 auto 0 0; width:0%; background:var(--accent); }
+.core[data-v="yes"]{ border-color:rgba(124,255,79,.5); }
+.core[data-v="yes"] .vote{ color:var(--data); text-shadow:0 0 10px rgba(124,255,79,.5); }
+.core[data-v="yes"] .timeline span{ background:var(--data); }
+.core[data-v="no"]{ border-color:rgba(255,30,30,.5); }
+.core[data-v="no"] .vote{ color:var(--alarm); text-shadow:0 0 10px rgba(255,30,30,.5); }
+.core[data-v="no"] .timeline span{ background:var(--alarm); }
+.core[data-v="hold"] .vote{ color:var(--warn); }
+.core[data-v="hold"] .timeline span{ background:var(--warn); }
+.core.busy{ animation:coreScan .6s linear infinite; }
+@keyframes coreScan{ 0%{ background-position:0 0 } 100%{ background-position:120px 0 } }
+.core.busy{ background-image:repeating-linear-gradient(90deg, rgba(255,106,0,.10) 0 6px, transparent 6px 18px); }
+
+.verdict{
+  border:1px solid var(--line); padding:8px 10px; display:flex; align-items:center; gap:12px; flex:0 0 auto;
+  margin-top:auto;
+  background:linear-gradient(90deg, rgba(255,106,0,.06), transparent);
+}
+.verdict .big{
+  font-family:var(--disp); font-weight:700; font-size:22px; letter-spacing:.2em; color:var(--ink-faint);
+  transition:color .2s;
+}
+.verdict[data-r="approve"]{ border-color:rgba(124,255,79,.5); }
+.verdict[data-r="approve"] .big{ color:var(--data); text-shadow:0 0 12px rgba(124,255,79,.4); }
+.verdict[data-r="reject"]{ border-color:rgba(255,30,30,.5); }
+.verdict[data-r="reject"] .big{ color:var(--alarm); text-shadow:0 0 12px rgba(255,30,30,.4); }
+.verdict[data-r="hold"] .big{ color:var(--warn); }
+.verdict .tally{ margin-left:auto; font-size:10px; color:var(--ink-dim); letter-spacing:.14em; text-align:right; }
+
+/* 判定基準：让面板下半部有真实信息，而不是留白 */
+.magi-crit{ display:flex; flex-direction:column; gap:3px; flex:0 0 auto; border-top:1px solid var(--line-soft); padding-top:6px; }
+
+/* 推論フィード：三賢人の思考過程。填满面板下半部，同时是真实的信息密度 */
+.magi-feed{
+  flex:1; min-height:52px; border:1px solid var(--line-soft); padding:5px 8px; overflow:hidden;
+  display:flex; flex-direction:column; justify-content:flex-end; gap:2px;
+  font-size:9.5px; line-height:1.4; letter-spacing:.05em; color:var(--ink-faint);
+  background:linear-gradient(180deg, rgba(255,106,0,.03), transparent 70%);
+}
+.magi-feed div{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.magi-feed b{ color:var(--data); font-weight:400; }
+.magi-feed em{ color:var(--accent); font-style:normal; }
+.magi-feed u{ color:var(--warn); text-decoration:none; }
+
+/* ============================================================
+   底部：警戒控制条 + 控制台
+   ============================================================ */
+.p-bar{ grid-area:bar; flex-direction:row; align-items:center; gap:14px; flex-wrap:wrap; padding:8px 11px; }
+.ctlgroup{ display:flex; align-items:center; gap:6px; }
+.ctlgroup .gl{ font-size:9px; letter-spacing:.18em; color:var(--ink-faint); text-transform:uppercase; margin-right:2px; }
+.sep{ width:1px; align-self:stretch; background:var(--line-soft); }
+
+.p-log{ grid-area:log; padding:0; overflow:hidden; }
+.log-head{ display:flex; align-items:center; gap:9px; padding:4px 10px; border-bottom:1px solid var(--line-soft); }
+.log-body{ padding:5px 10px 7px; overflow:hidden; font-size:10.5px; line-height:1.5; }
+.log-line{ display:flex; gap:9px; color:var(--ink-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.log-line .t{ color:var(--ink-faint); flex:0 0 auto; }
+.log-line .m{ color:var(--ink-dim); overflow:hidden; text-overflow:ellipsis; }
+.log-line.warn .m{ color:var(--warn); }
+.log-line.bad  .m{ color:var(--alarm); }
+.log-line.ok   .m{ color:var(--data); }
+.log-line.sys  .m{ color:var(--accent); }
+.caret{ display:inline-block; width:7px; height:11px; background:var(--accent); vertical-align:-1px; animation:blink 1.05s steps(1) infinite; }
+
+/* 狂暴 / 暴走 */
+body.berserk .ov.scan{ animation:scanRoll .35s linear infinite; }
+@keyframes scanRoll{ to{ transform:translateY(8px) } }
+body.berserk .readout .num{ color:var(--alarm); text-shadow:0 0 22px rgba(255,30,30,.8); }
+body.berserk .gauge .prog{ stroke:var(--alarm); filter:drop-shadow(0 0 8px rgba(255,30,30,.8)); }
+body.berserk .panel{ border-color:rgba(255,30,30,.5); }
+body.berserk .tag{ background:var(--alarm); }
+body.berserk .crt{ animation:shake .18s steps(2) infinite; }
+@keyframes shake{ 0%{transform:translate(0,0)} 50%{transform:translate(-1.5px,1px)} 100%{transform:translate(1px,-1px)} }
+
+/* ============================================================
+   明朝体レイヤ（EVA タイトルカード系）
+   汉字走 --cjk（默认 Hiragino Mincho ProN），拉丁仍留在 Menlo / Helvetica Neue。
+   明朝体的横向笔画很细，暗底小字号会被吃掉，所以这里统一把 CJK 字号
+   抬 1~2px、标题给 600(W6) 字重，并对小字补一层极淡的描边。
+   ============================================================ */
+.readout .jp{ font-size:13px; font-weight:600; letter-spacing:.26em; }
+.p-jp{ font-size:11.5px; font-weight:600; letter-spacing:.2em; }
+.bar > span:first-child{ font-size:10.5px; letter-spacing:.14em; color:var(--ink-dim); }
+/* 明朝は細いので、--ink-faint のままだと小さい漢字がほぼ消える。1段落とす */
+.row .k{ color:var(--ink-dim); }
+.core .sub{ font-size:9.5px; color:var(--ink-dim); }
+/* タイトルカードの罫線 */
+.lampinfo .jp{ position:relative; padding-top:5px; }
+.lampinfo .jp::before{
+  content:""; position:absolute; left:0; top:0; width:100%; height:1px;
+  background:currentColor; opacity:.4;
+}
+.ctlgroup .gl{ font-size:10px; letter-spacing:.22em; }
+.magi-feed{ font-size:10.5px; line-height:1.5; }
+.log-body{ font-size:11px; }
+.btn{ font-size:11px; }
+.tag{ font-size:11.5px; }
+.verdict .big{ font-size:24px; }
+.core .vote{ font-weight:600; }
+/* 明朝の細い横線を暗背景で潰さないための、ごく薄い肉付け */
+.readout .jp, .p-jp, .lampinfo .jp, .verdict .big{ -webkit-text-stroke:.3px currentColor; }
+.bar > span:first-child, .ctlgroup .gl, .magi-feed, .log-body{ text-shadow:0 0 .4px currentColor; }
+
+/* 关掉特效（评估设计语言时可逐层剥离） */
+body.no-scan .ov.scan{ display:none; }
+body.no-noise .ov.noise{ display:none; }
+body.no-glow .flicker{ animation:none; }
+body.no-motion *{ animation:none !important; transition:none !important; }
+
+@media (max-width:1080px){
+  body{ overflow:auto; }
+  .hud{ grid-template-columns:1fr; grid-template-rows:auto; grid-template-areas:"sync" "center" "magi" "bar" "log"; }
+  .crt{ height:auto; min-height:100%; }
+}
+@media (prefers-reduced-motion:reduce){
+  *{ animation:none !important; }
+}
+</style>
+</head>
+<body data-theme="magi" data-alert="0" data-font="mincho">
+
+<div class="crt flicker">
+
+  <div class="topbar">
+    <div class="emblem">
+      <svg width="26" height="30" viewBox="0 0 26 30" aria-hidden="true">
+        <!-- 半葉形徽記：外廓 + 中脈 + 斜脈，避免讀成紅十字 -->
+        <path d="M13 1.5 C5.5 6.5 3.4 14.5 6.4 21.5 C8.4 26 10.8 28.5 13 28.5 C15.2 28.5 17.6 26 19.6 21.5 C22.6 14.5 20.5 6.5 13 1.5 Z"
+              fill="none" stroke="var(--accent)" stroke-width="1.35"/>
+        <path d="M13 3.6 L13 27.4" stroke="var(--accent)" stroke-width="1.05"/>
+        <path d="M13 11 L6.2 8.2 M13 11 L19.8 8.2" stroke="var(--accent)" stroke-width=".85" opacity=".7"/>
+        <path d="M13 18 L6.4 15.6 M13 18 L19.6 15.6" stroke="var(--accent)" stroke-width=".85" opacity=".45"/>
+      </svg>
+      <div>
+        <div class="wordmark">NERV</div>
+        <div style="font-size:8.5px;letter-spacing:.28em;color:var(--ink-faint);margin-top:3px;">CENTRAL DOGMA // 0471</div>
+      </div>
+    </div>
+    <div class="meta">
+      <span>施設 <b>GEHIRN</b></span>
+      <span>系統 <b>MAGI-1</b></span>
+      <span>状態 <b id="topState">NORMAL</b></span>
+      <span id="clock">00:00:00.00</span>
+    </div>
+  </div>
+
+  <div class="hud">
+
+    <!-- ===================== 同调率 ===================== -->
+    <section class="panel p-sync">
+      <div class="p-head">
+        <span class="p-title">Synchro</span>
+        <span class="p-jp">同調率</span>
+        <span class="rule"></span>
+        <span class="p-jp" id="pilotId">E-01</span>
+      </div>
+
+      <div class="gauge">
+        <svg viewBox="0 0 200 200" id="gaugeSvg">
+          <g id="ticks"></g>
+          <circle class="track" cx="100" cy="100" r="82" fill="none" stroke-width="3"
+                  stroke-dasharray="386.4 515.2" transform="rotate(135 100 100)" stroke-linecap="butt"/>
+          <circle class="prog" id="progArc" cx="100" cy="100" r="82" fill="none" stroke-width="6"
+                  stroke-dasharray="0 515.2" transform="rotate(135 100 100)" stroke-linecap="butt"/>
+        </svg>
+        <div class="readout">
+          <div class="num" id="syncNum">78.4<i>%</i></div>
+          <div class="lbl">Sync Ratio</div>
+          <div class="jp">同調率</div>
+        </div>
+      </div>
+
+      <div class="syncctl">
+        <div class="dial">
+          <label>MANUAL</label>
+          <input type="range" id="syncSlider" min="0" max="400" step="0.1" value="78.4">
+        </div>
+        <div class="ctlgroup" style="gap:6px;">
+          <button class="btn sm on" id="autoBtn">AUTO DRIFT</button>
+          <button class="btn sm" id="spikeBtn">SPIKE</button>
+          <button class="btn sm danger" id="berserkBtn">暴走 TEST</button>
+        </div>
+      </div>
+
+      <div class="bars">
+        <div class="bar"><span>LCL 濃度</span><span class="fill"><span id="barLcl" style="width:82%"></span></span><span class="val" id="valLcl">0.82</span></div>
+        <div class="bar"><span>PLUG 深度</span><span class="fill"><span id="barPlug" class="g" style="width:64%"></span></span><span class="val" id="valPlug">64</span></div>
+        <div class="bar"><span>精神汚染</span><span class="fill"><span id="barMind" style="width:11%"></span></span><span class="val" id="valMind">11%</span></div>
+      </div>
+
+      <div class="rows">
+        <div class="row"><span class="k">Pilot</span><span class="v" id="pilotName">Ikari Shinji</span></div>
+        <div class="row"><span class="k">Unit</span><span class="v hot">EVA-01 / 初号機</span></div>
+        <div class="row"><span class="k">Umbilical</span><span class="v ok" id="valUmb">CONNECTED</span></div>
+      </div>
+    </section>
+
+    <!-- ===================== 中央：雷达 / 警戒 ===================== -->
+    <section class="panel p-center">
+      <div class="p-head">
+        <span class="p-title">Target Scope</span>
+        <span class="p-jp">目標捜索</span>
+        <span class="rule"></span>
+        <span class="p-jp" id="scopeMode">MODE: B / 340°</span>
+      </div>
+
+      <div class="radarwrap">
+        <canvas id="radar"></canvas>
+        <div class="corner">RANGE 60 km</div>
+        <div class="corner r">GAIN 7.2</div>
+        <div class="corner b" id="targetRead">TGT 00 // NONE</div>
+        <div class="corner br" id="patternRead">PATTERN: BLUE</div>
+      </div>
+
+      <div class="matrix" id="matrix" aria-hidden="true"></div>
+      <div class="hazard"></div>
+
+      <div class="lamprow">
+        <div class="lamp"><span class="ring"></span><i></i></div>
+        <div class="lampinfo">
+          <div class="big" id="alertEn">NORMAL</div>
+          <div class="jp" id="alertJp">通常警戒態勢</div>
+        </div>
+        <div class="countdown">
+          <div>
+            <div class="cd-num" id="cdNum">00:11:22</div>
+            <div class="cd-lbl">到達予測 / ETA</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== MAGI ===================== -->
+    <section class="panel p-magi">
+      <div class="p-head">
+        <span class="p-title">Magi</span>
+        <span class="p-jp">三賢人システム</span>
+        <span class="rule"></span>
+        <span class="p-jp" id="magiState">IDLE</span>
+      </div>
+
+      <div class="magi-q">
+        <select id="magiQ">
+          <option>使徒撃退ノ可否</option>
+          <option>EVA初号機 出撃ノ可否</option>
+          <option>N2爆雷 使用ノ可否</option>
+          <option>パイロット交替ノ可否</option>
+          <option>自爆装置 起動ノ可否</option>
+        </select>
+        <button class="btn solid" id="magiGo">起動 / VOTE</button>
+      </div>
+
+      <div class="magi-cores" id="magiCores"></div>
+
+      <div class="magi-crit">
+        <div class="row"><span class="k">判定基準</span><span class="v">多数決 3 中 2</span></div>
+        <div class="row"><span class="k">倫理係数</span><span class="v hot" id="critEth">0.62</span></div>
+        <div class="row"><span class="k">参照記録</span><span class="v" id="critRef">0471-Δ / 12 block</span></div>
+      </div>
+
+      <div class="magi-feed" id="magiFeed"></div>
+
+      <div class="verdict" id="verdict" data-r="none">
+        <span class="big" id="verdictTxt">— — —</span>
+        <span class="tally" id="verdictTally">賛成 0 / 反対 0 / 保留 0</span>
+      </div>
+    </section>
+
+    <!-- ===================== 控制条 ===================== -->
+    <section class="panel p-bar">
+      <div class="ctlgroup">
+        <span class="gl">警戒</span>
+        <button class="btn sm on" data-alert-btn="0">通常</button>
+        <button class="btn sm" data-alert-btn="1">第二種</button>
+        <button class="btn sm danger" data-alert-btn="2">第一種</button>
+        <button class="btn sm danger" data-alert-btn="3">非常事態</button>
+      </div>
+      <div class="sep"></div>
+      <div class="ctlgroup">
+        <span class="gl">Pattern</span>
+        <button class="btn sm on" data-pat="BLUE">BLUE</button>
+        <button class="btn sm" data-pat="ORANGE">ORANGE</button>
+        <button class="btn sm" data-pat="NONE">NONE</button>
+      </div>
+      <div class="sep"></div>
+      <div class="ctlgroup">
+        <span class="gl">色調</span>
+        <button class="btn sm on" data-theme-btn="magi">MAGI 橙</button>
+        <button class="btn sm" data-theme-btn="nerv">NERV 橙緑</button>
+        <button class="btn sm" data-theme-btn="mono">MONO 白</button>
+      </div>
+      <div class="sep"></div>
+      <div class="ctlgroup">
+        <span class="gl">層</span>
+        <button class="btn sm on" data-layer="scan">SCANLINE</button>
+        <button class="btn sm on" data-layer="noise">NOISE</button>
+        <button class="btn sm on" data-layer="glow">FLICKER</button>
+        <button class="btn sm" data-layer="motion">STOP ANIM</button>
+      </div>
+      <div class="sep"></div>
+      <div class="ctlgroup">
+        <span class="gl">字体</span>
+        <button class="btn sm on" data-font-btn="mincho">明朝</button>
+        <button class="btn sm" data-font-btn="gothic">ゴシック</button>
+      </div>
+      <div class="sep"></div>
+      <div class="ctlgroup" style="margin-left:auto;">
+        <span class="gl">鍵</span>
+        <span style="font-size:9.5px;letter-spacing:.1em;color:var(--ink-dim)">
+          0-3 警戒 · B 暴走 · M 表决 · S 自動 · T 撕裂
+        </span>
+      </div>
+    </section>
+
+    <!-- ===================== 控制台 ===================== -->
+    <section class="panel p-log">
+      <div class="log-head">
+        <span class="p-title" style="font-size:10.5px;">Console</span>
+        <span class="p-jp">記録</span>
+        <span class="rule"></span>
+        <span class="p-jp" id="logCount">000</span>
+      </div>
+      <div class="log-body" id="log"></div>
+    </section>
+
+  </div>
+
+  <div style="flex:0 0 auto;display:flex;gap:14px;align-items:center;font-size:9px;letter-spacing:.24em;color:var(--ink-faint);padding:2px 2px 0;">
+    <span>GOD'S IN HIS HEAVEN. ALL'S RIGHT WITH THE WORLD.</span>
+    <span style="margin-left:auto">人類補完計画</span>
+    <span>NERV HUD v0.1 — DESIGN LANGUAGE PROBE</span>
+  </div>
+</div>
+
+<div class="ov scan"></div>
+<div class="ov noise"></div>
+<div class="ov vig"></div>
+<div class="flash"></div>
+<div class="torn" id="torn"></div>
+
+<script>
+(function(){
+"use strict";
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const clamp = (v,a,b) => Math.min(b, Math.max(a, v));
+const rnd = (a,b) => a + Math.random()*(b-a);
+
+/* ============================================================
+   0. 量规刻度
+   ============================================================ */
+(function ticks(){
+  const g = $('#ticks'), NS = 'http://www.w3.org/2000/svg';
+  for(let i=0;i<=27;i++){
+    const a = (-135 + i*(270/27)) * Math.PI/180;
+    const major = i%9===0, r1 = major?86:90, r2 = 96;
+    const x1=100+r1*Math.sin(a), y1=100-r1*Math.cos(a);
+    const x2=100+r2*Math.sin(a), y2=100-r2*Math.cos(a);
+    const l = document.createElementNS(NS,'line');
+    l.setAttribute('x1',x1.toFixed(2)); l.setAttribute('y1',y1.toFixed(2));
+    l.setAttribute('x2',x2.toFixed(2)); l.setAttribute('y2',y2.toFixed(2));
+    l.setAttribute('stroke-width', major?1.6:1);
+    l.setAttribute('class', major?'tick major':'tick');
+    g.appendChild(l);
+  }
+})();
+
+/* ============================================================
+   1. 控制台日志（打字机）
+   ============================================================ */
+const logEl = $('#log');
+let logQueue = [], typing = false, logN = 0;
+function log(text, cls){
+  logQueue.push({text, cls:cls||''});
+  if(!typing) drain();
+}
+function drain(){
+  const item = logQueue.shift();
+  if(!item){ typing=false; return; }
+  typing = true;
+  const t = new Date().toTimeString().slice(0,8);
+  logN++; $('#logCount').textContent = String(logN).padStart(3,'0');
+  const line = document.createElement('div');
+  line.className = 'log-line ' + item.cls;
+  const span = document.createElement('span'); span.className='m';
+  line.innerHTML = '<span class="t">'+t+'</span>';
+  line.appendChild(span);
+  logEl.appendChild(line);
+  while(logEl.children.length > 7) logEl.removeChild(logEl.firstChild);
+
+  let i = 0;
+  const speed = item.cls==='bad' ? 8 : 12;
+  (function step(){
+    span.textContent = item.text.slice(0, ++i);
+    if(i < item.text.length) setTimeout(step, speed);
+    else { drain(); }
+  })();
+}
+
+/* ============================================================
+   2. 同调率
+   ============================================================ */
+const state = { sync:78.4, target:78.4, jitter:0, auto:true, alert:0, pattern:'BLUE', busy:false, berserk:false };
+const ARC = 386.4, CIRC = 515.2;
+
+function renderSync(v){
+  $('#progArc').setAttribute('stroke-dasharray', (ARC*clamp(v/400,0,1)).toFixed(1)+' '+CIRC);
+  $('#syncNum').innerHTML = v.toFixed(1)+'<i>%</i>';
+  const mind = clamp((v-40)/2.2, 0, 96);
+  $('#barMind').style.width = mind.toFixed(0)+'%';
+  $('#valMind').textContent = mind.toFixed(0)+'%';
+  // 颜色必须写回内联样式，否则暴走时旧的内联值会压过 CSS 规则
+  const col = (state.berserk || v>=200) ? 'var(--alarm)' : (v>=140 ? 'var(--warn)' : 'var(--data)');
+  $('#progArc').style.stroke = col;
+  $('#syncNum').style.color = col;
+}
+
+function syncLoop(){
+  const t = performance.now()/1000;
+  if(state.auto){
+    // 缓慢漂移 + 高频抖动：真实仪表的「呼吸」
+    state.target += Math.sin(t*0.27)*0.06 + Math.sin(t*0.9)*0.02;
+    state.target = clamp(state.target, 42, 118);
+  }
+  const breathe = state.auto ? Math.sin(t*1.7)*0.35 + Math.sin(t*4.1)*0.18 : Math.sin(t*3.3)*0.12;
+  state.sync += (state.target + breathe - state.sync) * 0.12;
+  renderSync(state.sync);
+  requestAnimationFrame(syncLoop);
+}
+renderSync(state.sync);
+requestAnimationFrame(syncLoop);
+
+$('#syncSlider').addEventListener('input', e=>{
+  state.target = parseFloat(e.target.value);
+  state.auto = false; $('#autoBtn').classList.remove('on');
+});
+$('#autoBtn').addEventListener('click', ()=>{
+  state.auto = !state.auto;
+  $('#autoBtn').classList.toggle('on', state.auto);
+  if(state.auto) state.target = clamp(state.sync, 45, 110);
+  log(state.auto ? 'AUTO DRIFT ENGAGED / 自動追従 開始' : 'MANUAL CONTROL / 手動設定', 'sys');
+});
+$('#spikeBtn').addEventListener('click', ()=>{
+  state.target = clamp(state.target + rnd(18, 46), 0, 200);
+  log('SYNC SPIKE DETECTED — '+state.target.toFixed(1)+'% / 同調率 急上昇', 'warn');
+});
+
+/* 暴走 */
+function berserk(on){
+  state.berserk = on;
+  document.body.classList.toggle('berserk', on);
+  $('#berserkBtn').classList.toggle('on', on);
+  if(on){
+    state.auto = false; state.target = 400;
+    log('*** 暴走 — UNIT-01 BERSERK ***', 'bad');
+    log('A-10 NERVE CONNECTION OVERRIDE / 制御不能', 'bad');
+    log('SYNC RATIO EXCEEDS 400% — 限界値 突破', 'bad');
+    alertLevel(3);
+    tear();
+    setTimeout(()=>{ if(state.berserk){ berserk(false); state.target=78; state.auto=true; $('#autoBtn').classList.add('on');
+      log('UNIT RECOVERED. SYNC NORMALIZED. / 復旧', 'ok'); alertLevel(0); } }, 7000);
+  }
+}
+$('#berserkBtn').addEventListener('click', ()=>berserk(!state.berserk));
+
+/* ============================================================
+   3. 警戒等级
+   ============================================================ */
+const ALERTS = {
+  0:{en:'NORMAL',      jp:'通常警戒態勢',       cls:'ok',   msg:'CONDITION NORMAL / 通常警戒態勢'},
+  1:{en:'LEVEL 2',     jp:'第二種警戒態勢',     cls:'warn', msg:'CONDITION 2 DECLARED / 第二種警戒態勢 発令'},
+  2:{en:'LEVEL 1',     jp:'第一種警戒態勢',     cls:'bad',  msg:'CONDITION 1 DECLARED / 第一種警戒態勢 発令 — 全員 第一種戦闘配置'},
+  3:{en:'EMERGENCY',   jp:'非常事態 A-17',      cls:'bad',  msg:'SPECIAL ORDER A-17 / 非常事態 宣言 — 中央指揮所 封鎖'}
+};
+function alertLevel(n){
+  state.alert = n;
+  document.body.dataset.alert = String(n);
+  $('#alertEn').textContent = ALERTS[n].en;
+  $('#alertJp').textContent = ALERTS[n].jp;
+  $('#topState').textContent = ALERTS[n].en;
+  $$('[data-alert-btn]').forEach(b=> b.classList.toggle('on', +b.dataset.alertBtn === n));
+  log(ALERTS[n].msg, ALERTS[n].cls);
+  if(n>=2) tear();
+  if(n===3) for(let i=0;i<3;i++) setTimeout(()=>{ log('ALL PERSONNEL TO BATTLE STATIONS', 'bad'); tear(); }, 900*(i+1));
+}
+$$('[data-alert-btn]').forEach(b=> b.addEventListener('click', ()=> alertLevel(+b.dataset.alertBtn)));
+
+/* 書体の切り替え（漢字だけが変わる。ラテンは Menlo / Helvetica Neue のまま） */
+$$('[data-font-btn]').forEach(b=> b.addEventListener('click', ()=>{
+  document.body.dataset.font = b.dataset.fontBtn;
+  $$('[data-font-btn]').forEach(x=> x.classList.toggle('on', x===b));
+  log('TYPEFACE → ' + (b.dataset.fontBtn==='mincho' ? '明朝体 / MINCHO (Hiragino Mincho ProN W6)' : 'ゴシック体 / GOTHIC'), 'sys');
+}));
+
+/* PATTERN */
+$$('[data-pat]').forEach(b=> b.addEventListener('click', ()=>{
+  state.pattern = b.dataset.pat;
+  $$('[data-pat]').forEach(x=> x.classList.toggle('on', x===b));
+  $('#patternRead').textContent = 'PATTERN: ' + state.pattern;
+  $('#patternRead').style.color = state.pattern==='BLUE' ? 'var(--data)' : (state.pattern==='ORANGE' ? 'var(--alarm)' : 'var(--ink-faint)');
+  seedBlips();
+  log('BLOOD PATTERN → '+state.pattern+' / 血液パターン '+state.pattern, state.pattern==='NONE'?'ok':'warn');
+}));
+
+/* 主题 / 图层开关 */
+$$('[data-theme-btn]').forEach(b=> b.addEventListener('click', ()=>{
+  document.body.dataset.theme = b.dataset.themeBtn;
+  $$('[data-theme-btn]').forEach(x=> x.classList.toggle('on', x===b));
+  readTheme();
+  log('PALETTE → '+b.dataset.themeBtn.toUpperCase(), 'sys');
+}));
+const LAYER_CLASS = { scan:'no-scan', noise:'no-noise', glow:'no-glow', motion:'no-motion' };
+$$('[data-layer]').forEach(b=> b.addEventListener('click', ()=>{
+  const k = b.dataset.layer;
+  const off = document.body.classList.toggle(LAYER_CLASS[k]);
+  b.classList.toggle('on', !off);
+}));
+
+/* ============================================================
+   4. 倒计时 / 时钟 / 方块矩阵
+   ============================================================ */
+let deadline = Date.now() + 11*60000 + 22000;
+function tickClock(){
+  const d = new Date();
+  $('#clock').textContent = d.toTimeString().slice(0,8) + '.' + String(Math.floor(d.getMilliseconds()/10)).padStart(2,'0');
+  let ms = deadline - Date.now();
+  if(ms <= 0){ deadline = Date.now() + 9*60000 + rnd(0,40000); ms = deadline - Date.now();
+    log('ETA RECALCULATED / 到達予測 再計算', 'warn'); }
+  const s = Math.floor(ms/1000);
+  const hh = String(Math.floor(s/3600)).padStart(2,'0');
+  const mm = String(Math.floor(s%3600/60)).padStart(2,'0');
+  const ss = String(s%60).padStart(2,'0');
+  $('#cdNum').textContent = hh+':'+mm+':'+ss;
+  $('#cdNum').style.color = s < 120 ? 'var(--alarm)' : 'var(--accent)';
+}
+tickClock(); setInterval(tickClock, 100);
+
+(function matrix(){
+  const m = $('#matrix'); const N = 72*3;
+  for(let i=0;i<N;i++) m.appendChild(document.createElement('i'));
+  setInterval(()=>{
+    const cells = m.children;
+    for(let i=0;i<cells.length;i++){
+      if(cells[i].className){
+        if(Math.random() < 0.34) cells[i].className = '';
+      } else if(Math.random() < 0.045){
+        cells[i].className = Math.random()<0.10 ? 'hot' : 'on';
+      }
+    }
+  }, 200);
+})();
+
+/* 撕裂动画 */
+function tear(){
+  const t = $('#torn');
+  t.classList.remove('go'); void t.offsetWidth; t.classList.add('go');
+}
+
+/* ============================================================
+   5. 雷达（颜色全部从 CSS 变量读取 → 换主题时雷达跟着走）
+   ============================================================ */
+const cv = $('#radar'), ctx = cv.getContext('2d');
+let W=0, H=0, sweep = 0, blips = [];
+const C = { acc:[255,106,0], dat:[124,255,79], alm:[255,30,30] };
+function toRgb(s){
+  s = (s||'').trim().replace('#','');
+  if(s.length === 3) s = s.split('').map(c=>c+c).join('');
+  const n = parseInt(s,16);
+  return isNaN(n) ? [255,106,0] : [(n>>16)&255, (n>>8)&255, n&255];
+}
+const rgba = (c,a) => 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')';
+function readTheme(){
+  const cs = getComputedStyle(document.body);
+  C.acc = toRgb(cs.getPropertyValue('--accent'));
+  C.dat = toRgb(cs.getPropertyValue('--data'));
+  C.alm = toRgb(cs.getPropertyValue('--alarm'));
+}
+readTheme();
+function fit(){
+  const r = cv.getBoundingClientRect(), d = Math.min(window.devicePixelRatio||1, 2);
+  W = r.width; H = r.height;
+  cv.width = Math.max(1, W*d); cv.height = Math.max(1, H*d);
+  ctx.setTransform(d,0,0,d,0,0);
+}
+function seedBlips(){
+  blips = [];
+  const n = state.pattern==='NONE' ? 1 : (state.pattern==='ORANGE' ? 3 : 1);
+  for(let i=0;i<n;i++) blips.push({ r: rnd(.18,.92), a: rnd(0, Math.PI*2), s: rnd(1.6,3.4), hot: i===0 });
+}
+seedBlips();
+window.addEventListener('resize', fit);
+fit();
+
+function drawRadar(){
+  if(!W){ fit(); }
+  const cx=W/2, cy=H/2, R=Math.min(W,H)/2 - 6;
+  ctx.clearRect(0,0,W,H);
+
+  // 同心圆 + 十字
+  ctx.lineWidth = 1;
+  for(let i=1;i<=4;i++){
+    ctx.strokeStyle = rgba(C.acc, i===4?0.30:0.14);
+    ctx.beginPath(); ctx.arc(cx,cy,R*i/4,0,Math.PI*2); ctx.stroke();
+  }
+  ctx.strokeStyle = rgba(C.acc, .18);
+  ctx.beginPath(); ctx.moveTo(cx-R,cy); ctx.lineTo(cx+R,cy); ctx.moveTo(cx,cy-R); ctx.lineTo(cx,cy+R); ctx.stroke();
+  // 方位刻度
+  ctx.strokeStyle = rgba(C.acc, .35);
+  for(let i=0;i<72;i++){
+    const a=i*Math.PI/36, l = i%9===0?9:4;
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.sin(a)*(R-l), cy-Math.cos(a)*(R-l));
+    ctx.lineTo(cx+Math.sin(a)*R,      cy-Math.cos(a)*R);
+    ctx.stroke();
+  }
+
+  sweep += 0.026;
+  // 扫描扇形
+  ctx.save();
+  ctx.translate(cx,cy); ctx.rotate(sweep);
+  const g = ctx.createLinearGradient(0,0,R,0);
+  g.addColorStop(0, rgba(C.dat,.22));
+  g.addColorStop(1, rgba(C.dat,0));
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,R,-0.55,0); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = rgba(C.dat,.7); ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(R,0); ctx.stroke();
+  ctx.restore();
+
+  // 光点：按与扫描线的角差淡出
+  const a0 = sweep % (Math.PI*2);
+  blips.forEach(b=>{
+    let d = ((a0 - b.a) % (Math.PI*2) + Math.PI*2) % (Math.PI*2);
+    const alpha = clamp(1 - d/2.4, 0, 1);
+    if(alpha <= 0.01) return;
+    const x = cx + Math.sin(b.a)*R*b.r, y = cy - Math.cos(b.a)*R*b.r;
+    const col = b.hot ? C.alm : C.dat;
+    ctx.fillStyle = rgba(col, alpha*0.25);
+    ctx.beginPath(); ctx.arc(x,y,10,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = rgba(col, alpha);
+    ctx.beginPath(); ctx.arc(x,y,b.s,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = rgba(col, alpha*0.8);
+    ctx.strokeRect(x-7, y-7, 14, 14);
+    ctx.fillStyle = rgba(col, alpha);
+    ctx.font = '9px ui-monospace, monospace';
+    ctx.fillText('TGT-0'+(blips.indexOf(b)+1), x+11, y-8);
+  });
+
+  if(Math.random()<0.02) seedBlips();
+  requestAnimationFrame(drawRadar);
+}
+requestAnimationFrame(drawRadar);
+
+/* 目标读数 */
+setInterval(()=>{
+  if(state.pattern==='NONE'){ $('#targetRead').textContent='TGT 00 // NONE'; return; }
+  const d = rnd(8, 54).toFixed(1), brg = String(Math.floor(rnd(0,360))).padStart(3,'0');
+  $('#targetRead').textContent = 'TGT 0'+(blips.length)+' // '+d+' km / BRG '+brg;
+}, 1300);
+
+/* ============================================================
+   6. MAGI 三贤人表决
+   ============================================================ */
+const CORES = [
+  { id:'MELCHIOR',  no:'-1', role:'科学者 / SCIENTIST' },
+  { id:'BALTHASAR', no:'-2', role:'母性 / MOTHER' },
+  { id:'CASPER',    no:'-3', role:'女性 / WOMAN' }
+];
+const VOTES = { yes:{t:'賛成', n:'APPROVE'}, no:{t:'反対', n:'REJECT'}, hold:{t:'保留', n:'HOLD'} };
+let coreEls = [];
+
+(function buildCores(){
+  const host = $('#magiCores');
+  CORES.forEach(c=>{
+    const el = document.createElement('div');
+    el.className = 'core'; el.dataset.v='';
+    el.innerHTML =
+      '<span class="nm">'+c.id+'<span style="color:var(--accent)">'+c.no+'</span></span>'+
+      '<span class="sub">'+c.role+'</span>'+
+      '<span class="vote">—</span>'+
+      '<span class="timeline"><span></span></span>';
+    host.appendChild(el); coreEls.push(el);
+  });
+})();
+
+function setCore(i, v){
+  const el = coreEls[i];
+  el.dataset.v = v || '';
+  el.querySelector('.vote').textContent = v ? VOTES[v].t + ' / ' + VOTES[v].n : '—';
+  if(v){
+    log('MAGI '+CORES[i].id+CORES[i].no+' 判断 → '+VOTES[v].t, v==='yes'?'ok':(v==='no'?'bad':'warn'));
+    const col = v==='yes' ? 'b' : (v==='no' ? 'u' : 'em');
+    feed('CORE-'+CORES[i].id+' 判断確定 → <'+col+'>'+VOTES[v].t+'</'+col+'> 0x'+hex(4));
+  }
+}
+
+/* ---------- 推論フィード：三賢人の思考過程を流す ---------- */
+const feedEl = $('#magiFeed');
+const HEXC = '0123456789ABCDEF';
+const hex = n => Array.from({length:n}, ()=>HEXC[Math.floor(Math.random()*16)]).join('');
+let feedFast = false;
+function feed(html){
+  const d = document.createElement('div');
+  d.innerHTML = html;
+  feedEl.appendChild(d);
+  while(feedEl.children.length > 8) feedEl.removeChild(feedEl.firstChild);
+}
+const FEED_IDLE = [
+  ()=> 'CORE-'+Math.ceil(rnd(1,3))+' :: <b>0x'+hex(4)+'</b> 参照 記録 0471-'+hex(2)+' → 一致',
+  ()=> 'LINK MAGI-1 ↔ MAGI-2 同期 <b>'+rnd(99.1,99.9).toFixed(2)+'%</b>',
+  ()=> '倫理規定 <em>第'+Math.ceil(rnd(1,14))+'条</em> 適用判定 … 保留',
+  ()=> 'GEHIRN ARCHIVE <b>0x'+hex(6)+'</b> 読込 '+Math.ceil(rnd(1,9))+' block',
+  ()=> 'CASPER 感情係数 <u>'+rnd(0.30,0.92).toFixed(2)+'</u> 変動 / 収束待ち',
+  ()=> '予測モデル Δ'+rnd(0.01,0.90).toFixed(2)+' / 分散 '+hex(3),
+  ()=> 'SELF-CHECK <b>PASS</b> — 3/3 cores responsive',
+  ()=> 'BALTHASAR 母性係数 '+rnd(0.40,0.99).toFixed(2)+' / 優先度 <em>HIGH</em>'
+];
+function feedLoop(){
+  feed(FEED_IDLE[Math.floor(Math.random()*FEED_IDLE.length)]());
+  if(!feedFast){
+    $('#critEth').textContent = rnd(0.41, 0.88).toFixed(2);
+    $('#critRef').textContent = '0471-'+['Δ','Θ','Λ','Ξ'][Math.floor(rnd(0,3.999))]+' / '+Math.ceil(rnd(3,29))+' block';
+  }
+  setTimeout(feedLoop, feedFast ? 120 : rnd(800, 1700));
+}
+feed('MAGI-1 <b>STANDBY</b> — 三賢人 待機');
+feedLoop();
+
+function magiVote(){
+  if(state.busy) return;
+  state.busy = true;
+  $('#magiGo').disabled = true;
+  $('#magiState').textContent = 'DELIBERATING';
+  const q = $('#magiQ').value;
+  feedFast = true;
+  feed('議題解析 → <em>'+q+'</em> / 三賢人 並列審議 開始');
+  $('#verdict').dataset.r = 'none';
+  $('#verdictTxt').textContent = '審議中';
+  log('MAGI SYSTEM START — 議題「'+q+'」', 'sys');
+
+  const finals = CORES.map((_, i)=>{
+    // 三贤人各自独立判断；对「自爆」「N2」这类议题更保守
+    const risky = /自爆|N2/.test(q);
+    const pYes = risky ? 0.34 : 0.58;
+    const r = Math.random();
+    return r < pYes ? 'yes' : (r < pYes + 0.5 ? 'no' : 'hold');
+  });
+
+  coreEls.forEach((el, i)=>{
+    el.classList.add('busy');
+    const bar = el.querySelector('.timeline span');
+    const t0 = performance.now(), dur = rnd(1100, 2300) + i*180;
+    (function cycle(){
+      const p = clamp((performance.now()-t0)/dur, 0, 1);
+      bar.style.width = (p*100).toFixed(0)+'%';
+      if(p < 1){
+        el.dataset.v = ['yes','no','hold'][Math.floor(Math.random()*3)];
+        el.querySelector('.vote').textContent = VOTES[el.dataset.v].t + ' / ' + VOTES[el.dataset.v].n;
+        setTimeout(cycle, 90);
+      } else {
+        el.classList.remove('busy');
+        setCore(i, finals[i]);
+        if(i === coreEls.length-1) setTimeout(settle, 320);
+      }
+    })();
+  });
+
+  function settle(){
+    feedFast = false;
+    const yes = finals.filter(v=>v==='yes').length;
+    const no  = finals.filter(v=>v==='no').length;
+    const hold= finals.filter(v=>v==='hold').length;
+    let r = 'hold', txt = '再審議 / HOLD';
+    if(yes >= 2){ r='approve'; txt='可決 / APPROVED'; }
+    else if(no >= 2){ r='reject'; txt='否決 / REJECTED'; }
+    const vtag = r==='approve' ? 'b' : (r==='reject' ? 'u' : 'em');
+    feed('多数決 '+yes+':'+no+':'+hold+' → <'+vtag+'>'+txt+'</'+vtag+'>');
+    $('#verdict').dataset.r = r;
+    $('#verdictTxt').textContent = txt;
+    $('#verdictTally').textContent = '賛成 '+yes+' / 反対 '+no+' / 保留 '+hold;
+    log('MAGI 判断確定：'+txt+' — 「'+q+'」', r==='approve'?'ok':(r==='reject'?'bad':'warn'));
+    if(r==='approve') log('ORDER ACCEPTED / 命令 承認', 'ok');
+    if(r==='reject')  log('ORDER DENIED / 命令 却下 — 再検討ヲ要ス', 'bad');
+    if(r==='hold')    log('CONSENSUS FAILED / 合意 不成立 — 再審議', 'warn');
+    $('#magiState').textContent = 'IDLE';
+    state.busy = false; $('#magiGo').disabled = false;
+    // 表决引发的连锁反应
+    if(r==='approve' && /出撃|撃退/.test(q)) setTimeout(()=>{ if(state.alert<2) alertLevel(2); }, 700);
+  }
+}
+$('#magiGo').addEventListener('click', magiVote);
+
+/* ============================================================
+   7. 键盘
+   ============================================================ */
+window.addEventListener('keydown', e=>{
+  if(e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase();
+  if('0123'.includes(k)) alertLevel(+k);
+  if(k === 'b') berserk(!state.berserk);
+  if(k === 'm') magiVote();
+  if(k === 't') tear();
+  if(k === 's'){ state.auto = !state.auto; $('#autoBtn').classList.toggle('on', state.auto); }
+});
+
+/* ============================================================
+   8. 状態の再現（URL ハッシュ）
+   例: docs/reference/nerv-hud.html#theme=mono&alert=2&pattern=ORANGE&berserk&magi&plain
+   ============================================================ */
+(function preset(){
+  const raw = location.hash.replace(/^#/, '');
+  if(!raw) return;
+  const p = new URLSearchParams(raw);
+  const theme = p.get('theme');
+  if(theme){
+    document.body.dataset.theme = theme;
+    $$('[data-theme-btn]').forEach(x=> x.classList.toggle('on', x.dataset.themeBtn === theme));
+    readTheme();
+  }
+  const fnt = p.get('font');
+  if(fnt){
+    document.body.dataset.font = fnt;
+    $$('[data-font-btn]').forEach(x=> x.classList.toggle('on', x.dataset.fontBtn === fnt));
+  }
+  const pat = p.get('pattern');
+  if(pat){
+    const b = document.querySelector('[data-pat="'+pat+'"]');
+    if(b) b.click();
+  }
+  if(p.has('plain')) $$('[data-layer]').forEach(b=>{ if(b.dataset.layer!=='motion'){ document.body.classList.add(LAYER_CLASS[b.dataset.layer]); b.classList.remove('on'); } });
+  const al = p.get('alert');
+  if(al !== null && al !== '') alertLevel(clamp(parseInt(al,10)||0, 0, 3));
+  if(p.has('berserk')) berserk(true);
+  if(p.has('magi')) setTimeout(magiVote, 1200);
+})();
+
+/* ============================================================
+   9. 开场序列
+   ============================================================ */
+log('NERV CENTRAL DOGMA — SYSTEM ONLINE', 'sys');
+log('MAGI-1 MELCHIOR/BALTHASAR/CASPER 接続 完了', 'ok');
+log('BLOOD PATTERN: BLUE — 通常警戒態勢', 'warn');
+log('EVA-01 同調率 78.4% / パイロット 碇シンジ', 'ok');
+setTimeout(()=>log('AWAITING ORDERS. / 命令ヲ待機', 'sys'), 1400);
+})();
+</script>
+</body>
+</html>

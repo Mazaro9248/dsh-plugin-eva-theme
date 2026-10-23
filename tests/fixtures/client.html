@@ -1,0 +1,962 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>dsh-plugin-eva-theme —— 浏览器半边测试台</title>
+<style>
+  /* 只用于测试台的排版，与被测皮肤无关 */
+  body{font:13px/1.6 ui-monospace,Menlo,monospace;margin:24px;background:#111;color:#ddd}
+  h1{font-size:15px}
+  pre{white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>dsh-plugin-eva-theme —— 浏览器半边测试台</h1>
+<p>模拟 <code>window.__ModuleLoader__</code> 与一个假的 <code>ctx</code>，在真实 DOM 里跑完
+<code>apply()</code> 的全流程：注册、注入、挂载、选项、回收。</p>
+<pre id="RESULT">not-run</pre>
+
+<script>
+// 必须在被测文件之前定义：它是浏览器半边的唯一入口契约。
+window.__ModuleLoader__ = {
+  load(definition) {
+    window.__CAPTURED_DEFINITION__ = definition;
+  },
+};
+</script>
+<script src="../../lib/client.js"></script>
+<script>
+(async () => {
+  "use strict";
+  const results = [];
+  const check = (name, ok, detail) => results.push({ name, ok: Boolean(ok), detail: detail ?? "" });
+  const PACKAGE = "dsh-plugin-eva-theme";
+  const STORAGE_NAMESPACE = "dsh-eva-magi-theme";
+  const OPTIONS_KEY = STORAGE_NAMESPACE + ":options";
+
+  let definition;
+  try {
+    definition = window.__CAPTURED_DEFINITION__;
+    check("客户端半边调用了 __ModuleLoader__.load", Boolean(definition));
+    check("模块 id 等于包名（解析器据此匹配 ./client 导出）", definition.id === PACKAGE, definition.id);
+
+    // 被测代码不 require 任何模块：给了 require 也不该被调用。
+    const exports = definition.factory(() => {
+      throw new Error("浏览器半边不应 require 任何模块");
+    });
+    check("exports.apply 是函数", typeof exports.apply === "function");
+    check("exports.inject 只依赖 theme 服务", JSON.stringify(exports.inject) === '["theme"]', JSON.stringify(exports.inject));
+    check("PALETTE 导出 107 个令牌", Object.keys(exports.PALETTE).length === 107, String(Object.keys(exports.PALETTE).length));
+    check("DEFAULT_OPTIONS 导出 16 个选项", Object.keys(exports.DEFAULT_OPTIONS).length === 16, Object.keys(exports.DEFAULT_OPTIONS).join(","));
+
+    // ---- 假的 Cordis 上下文：记录 effect 与令牌层调用，能真正回收 ----
+    const makeCtx = (remote) => {
+      const state = { effects: [], tokenCalls: [], tokenDisposed: 0, injects: [] };
+      return {
+        state,
+        ...(remote ? { remote } : {}),
+        // 模拟 Cordis 的作用域注入：依赖就绪时用子上下文回调。
+        // remote.session 这类作用域服务必须走 inject 才会被建立（实机验证过）。
+        inject(deps, callback) {
+          state.injects.push(deps);
+          callback({ remote: remote || {}, effect: (fn) => { const d = fn(); return d; } });
+        },
+        effect(fn, label) {
+          const dispose = fn();
+          state.effects.push({ label, dispose });
+          return dispose;
+        },
+        theme: {
+          setTheme(id) { document.body.toggleAttribute('data-ds-dark-theme',id==='dark'); },
+          overrideTokens(source, tokens) {
+            state.tokenCalls.push({ source, tokens });
+            const paint = () => {
+              const mode = document.body.hasAttribute('data-ds-dark-theme') ? 'dark' : 'light';
+              for (const [key, pair] of Object.entries(tokens)) document.body.style.setProperty(key, pair[mode]);
+            };
+            paint();
+            const observer = new MutationObserver(paint);
+            observer.observe(document.body, {attributes:true, attributeFilter:['data-ds-dark-theme']});
+            return () => { observer.disconnect(); for (const key of Object.keys(tokens)) document.body.style.removeProperty(key); state.tokenDisposed += 1; };
+          },
+        },
+      };
+    };
+
+    // 从干净状态开始，否则上一次运行的残留会污染断言
+    try { localStorage.removeItem(OPTIONS_KEY); } catch {}
+    try { sessionStorage.removeItem(STORAGE_NAMESPACE + ":booted"); } catch {}
+    // 模拟升级前保存的设置和根标记，确认废弃功能不会复活。
+    localStorage.setItem(OPTIONS_KEY, JSON.stringify({clockScaleUnit:0.4,motion:false,vignette:true,grid:true,topLine:true}));
+    for (const attr of ['data-eva-vig','data-eva-motion','data-eva-grid','data-eva-top']) document.documentElement.setAttribute(attr,'on');
+
+    // ================= 实例 1：默认选项 =================
+    const ctx = makeCtx();
+    exports.apply(ctx);
+    check("默认时钟倍率 1.5 保持旧 0.6 的实际大小", globalThis.__EVA_MAGI_THEME__.options.clockScale === 1.5 && Number(document.documentElement.style.getPropertyValue("--eva-clock-scale")) === 0.6);
+
+    check("apply 注册了 5 个 effect（自检 / 样式表 / 装饰层 / 开机序列 / 令牌层）", ctx.state.effects.length === 5,
+      ctx.state.effects.map((e) => e.label).join(" | "));
+    check("每个 effect 都返回了可回收的 dispose", ctx.state.effects.every((e) => typeof e.dispose === "function"));
+
+    // —— 令牌层 ——
+    const call = ctx.state.tokenCalls[0];
+    check("令牌层走官方 overrideTokens 通道", ctx.state.tokenCalls.length === 1);
+    check("令牌层 source 是包名", call && call.source === PACKAGE, call && call.source);
+    const entries = call ? Object.entries(call.tokens) : [];
+    check("令牌层含 107 个 --dsw-alias-* 键", entries.length === 107 && entries.every(([k]) => k.startsWith("--dsw-alias-")),
+      String(entries.length));
+    check("每个令牌都是 { light, dark } 双值字符串",
+      entries.every(([, v]) => v && typeof v.light === "string" && typeof v.dark === "string" && v.light && v.dark));
+
+    // —— 样式表 ——
+    const styleTag = document.head.querySelector('style[data-plugin-css="' + PACKAGE + ':skin"]');
+    check("皮肤样式表已注入 <head> 且带 data-plugin-css 标记", Boolean(styleTag));
+    let rules = [];
+    try { rules = Array.from(styleTag.sheet.cssRules).map((r) => r.cssText); } catch (error) {
+      check("样式表可读（CSSOM）", false, String(error));
+    }
+    check("样式表被浏览器成功解析（规则数 > 10，无语法性丢规则）", rules.length > 10, "规则数 " + rules.length);
+    check("含硬边规则 --dsw-radius-panel:0px", rules.some((t) => t.includes("--dsw-radius-panel") && t.includes("0px")));
+    check("含扫描线规则 .eva-magi-scan", rules.some((t) => t.includes(".eva-magi-scan")));
+    check("含明朝体标题规则（只作用于 h1~h3）", rules.some((t) => t.includes("Hiragino Mincho ProN") && t.includes("h1")));
+    check("含等宽数字规则 tabular-nums", rules.some((t) => t.includes("tabular-nums")));
+
+    // —— 装饰层：CRT + 结构框架 + 仪表簇 + 标签 ——
+    const layer = document.body.querySelector(".eva-magi-layer");
+    check("装饰层已挂到 <body>", Boolean(layer));
+    check("装饰层不拦截指针事件（永不挡操作）", Boolean(layer) && getComputedStyle(layer).pointerEvents === "none",
+      layer ? getComputedStyle(layer).pointerEvents : "-");
+    const q = (sel) => (layer ? layer.querySelectorAll(sel).length : 0);
+    check("保留场同步带与扫描线，移除暗角和测绘网格",
+      q(".eva-magi-grid") === 0 && q(".eva-magi-beam") === 1 && q(".eva-magi-vig") === 0 && q(".eva-magi-scan") === 1);
+    check("结构框架：内嵌框 + 四个角标", q(".eva-frame") === 1 && q(".eva-corner") === 4, "角标 " + q(".eva-corner"));
+    check("左右刻度尺都在", q(".eva-edge") === 2, String(q(".eva-edge")));
+    check("移除顶边压力线并保留底部危险条纹", q(".eva-magi-top") === 0 && q(".eva-hazard") === 1);
+    check("标签 3 个（正面峰谷 2 + 背面合并后的余额 1）", q(".eva-tag") === 3, String(q(".eva-tag")));
+    check("中央教条区只显示当前载入角色，无旧遥测与方块流",
+      q(".eva-pilot-name") === 1 && q(".eva-clock,.eva-view,.eva-font,.eva-state,.eva-blocks") === 0);
+    check("亮色初始载入绫波丽", layer.querySelector('.eva-pilot-name').textContent === '绫波丽');
+
+    const fit = layer.querySelector(".eva-corner-stack")?.dataset.fit ?? "";
+    check("仪表簇有自动避让档位（无输入框时默认 full）", fit === "full", fit);
+
+    // —— 开机序列 ——
+    const boot = document.body.querySelector(".eva-boot");
+    check("开机画面在素材同色纯背景播放 GIF，并提供独立静音按钮", Boolean(boot) && [...boot.children].every(node=>node.matches('img.eva-boot-gif,button.eva-boot-sound')) && boot.firstElementChild.matches("img.eva-boot-gif") && getComputedStyle(boot).backgroundColor === "rgb(0, 1, 1)");
+    check("开机序列作为完整启动入口接收操作", Boolean(boot) && getComputedStyle(boot).pointerEvents === "auto");
+    const bootImage = boot.querySelector('.eva-boot-gif');
+    const bootSource = bootImage?.getAttribute('src');
+    await new Promise(resolve => { if (bootImage?.complete) resolve(); else { bootImage?.addEventListener('load', resolve, {once:true}); setTimeout(resolve, 1000); } });
+    check("用户提供的 GIF 原始素材已实际解码", bootImage?.naturalWidth === 256 && bootImage?.naturalHeight === 256 && bootSource.includes('/dsh-eva-magi/assets/animations/'));
+    check("NERV SVG 已用于时钟和播放器，且不进入辅助技术阅读流", layer.querySelectorAll('.eva-nerv-logo').length === 2 && getComputedStyle(layer.querySelector('.eva-nerv-logo')).maskImage.includes('/dsh-eva-magi/assets/svg/'));
+    check("开机序列会话标记已写入", (() => { try { return sessionStorage.getItem(STORAGE_NAMESPACE + ":booted") === "1"; } catch { return false; } })());
+    globalThis.__EVA_MAGI_THEME__.set('boot',false);
+
+    // —— <html> 上的开关标记 ——
+    // 真实应用在深色下会给 body 加这个属性；测试台补上，否则深色作用域的规则
+    // 永远不会生效（断言若查计算样式就会失真）。
+    document.body.setAttribute("data-ds-dark-theme", "");
+
+    const root = document.documentElement;
+    check("根元素带 data-eva-magi", root.hasAttribute("data-eva-magi"));
+    check("默认扫描线关（用户要求先去掉）", root.getAttribute("data-eva-scan") === "off", root.getAttribute("data-eva-scan"));
+    check("默认硬边开", root.getAttribute("data-eva-edges") === "hard", root.getAttribute("data-eva-edges"));
+    check("默认明朝体标题开", root.getAttribute("data-eva-mincho") === "on", root.getAttribute("data-eva-mincho"));
+    check("移除的功能不再写入根元素标记", !root.hasAttribute("data-eva-grid") && !root.hasAttribute("data-eva-top"));
+    check("默认场同步带关（那条滚动的白线，已按要求去掉）", root.getAttribute("data-eva-beam") === "off", root.getAttribute("data-eva-beam"));
+    check("默认结构框架开", root.getAttribute("data-eva-chrome") === "on", root.getAttribute("data-eva-chrome"));
+    check("默认仪表簇开", root.getAttribute("data-eva-hud") === "on", root.getAttribute("data-eva-hud"));
+    check("扫描线浓度写进自定义属性", root.style.getPropertyValue("--eva-scan-strength") !== "");
+
+    // —— 峰谷计价规则单测（用已知时刻断言，不依赖当前时间）——
+    // 北京时间 = UTC+8；这些用例覆盖高峰窗口的两端、周末、法定节假日、调休上班日
+    const bj = (y, m, d, h, min) => Math.floor(Date.UTC(y, m - 1, d, h - 8, min || 0) / 1000);
+    const P = exports.pricingStateAt;
+    // 注意别用 2026-10-05：那天虽是周一，却落在国庆假期内，正确答案是 holiday/空闲。
+    // 这个用例最初就是写错在这里，被测试自己抓出来了。
+    check("周一 10:00（北京）= 高峰（用假期外的 10-12）", P(bj(2026, 10, 12, 10)).peak === true,
+      JSON.stringify(P(bj(2026, 10, 12, 10))));
+    check("周四 09:00（北京）= 高峰（窗口起点含）", P(bj(2026, 10, 8, 9)).peak === true);
+    check("周四 12:00（北京）= 空闲（窗口终点不含）", P(bj(2026, 10, 8, 12)).peak === false);
+    check("周四 15:00（北京）= 高峰", P(bj(2026, 10, 8, 15)).peak === true);
+    check("周四 18:00（北京）= 空闲", P(bj(2026, 10, 8, 18)).peak === false);
+    check("周四 08:00（北京）= 空闲（午前空档）", P(bj(2026, 10, 8, 8)).peak === false);
+    check("周六 10:00（北京）= 空闲且 reason=weekend", (() => {
+      const st = P(bj(2026, 10, 10, 10)); return st.peak === false && st.reason === "weekend";
+    })(), JSON.stringify(P(bj(2026, 10, 10, 10))));
+    check("既是周末又在假期内（10-03 周六·国庆）= reason=holiday（假期优先，才和跨天倒计时一致）", (() => {
+      const st = P(bj(2026, 10, 3, 10)); return st.peak === false && st.reason === "holiday";
+    })(), JSON.stringify(P(bj(2026, 10, 3, 10))));
+    check("国庆假期内的周三 10:00 = 空闲且 reason=holiday", (() => {
+      const st = P(bj(2026, 10, 7, 10)); return st.peak === false && st.reason === "holiday";
+    })(), JSON.stringify(P(bj(2026, 10, 7, 10))));
+    check("假期结束后的周四 10:00 恢复高峰", P(bj(2026, 10, 8, 10)).peak === true);
+    check("超出节假日清单覆盖的年份会标 inferred", (() => {
+      const st = P(bj(2027, 3, 1, 10)); return st.peak === true && st.inferred === true;
+    })() === true && P(bj(2027, 3, 1, 4)).inferred === true,
+      JSON.stringify(P(bj(2027, 3, 1, 4))));
+    const nextAt = exports.nextPricingChangeAt(bj(2026, 10, 8, 10));
+    check("高峰中 10:00 的下一切换点是当日 12:00", nextAt === bj(2026, 10, 8, 12),
+      new Date(nextAt * 1000).toISOString());
+    check("空闲中 12:30 的下一切换点是当日 14:00", exports.nextPricingChangeAt(bj(2026, 10, 8, 12, 30)) === bj(2026, 10, 8, 14));
+
+    // —— 设置面板：仪表可点，面板改的是同一份选项 ——
+    const hudEl = layer.querySelector(".eva-hud");
+    check("仪表可点，而整个装饰层仍然不可点（不挡应用）",
+      getComputedStyle(hudEl).pointerEvents === "auto" && getComputedStyle(layer).pointerEvents === "none",
+      `hud=${getComputedStyle(hudEl).pointerEvents} layer=${getComputedStyle(layer).pointerEvents}`);
+    check("仪表带按钮语义（键盘可达）",
+      hudEl.getAttribute("role") === "button" && hudEl.getAttribute("tabindex") === "0");
+
+    const panel = layer.querySelector(".eva-panel");
+    check("设置面板已建好且默认收起", Boolean(panel) && panel.hidden === true);
+    check("非模态设置区不占用宿主对话框栈", panel.getAttribute('role') === 'region' && !panel.matches('[role="dialog"]'));
+    const swCount = panel.querySelectorAll(".eva-sw").length;
+    const rangeCount = panel.querySelectorAll('input[type="range"]').length;
+    check("开关是判决印章：承認 实心、否定 描边（两态背景不同）", (() => {
+      const sws = [...panel.querySelectorAll(".eva-sw")];
+      // 默认的 11 个开关里本来就有承認与否定两种状态，不需要切任何开关
+      // （早先这里切 chrome，结果把整个覆盖层连同面板一起藏了，反而测不准）
+      const off = sws.find((b) => b.getAttribute("aria-checked") === "false");
+      const on = sws.find((b) => b.getAttribute("aria-checked") === "true");
+      if (!on || !off) return false;
+      const onBg = getComputedStyle(on).backgroundColor;
+      const offBg = getComputedStyle(off).backgroundColor;
+      return offBg === "rgba(0, 0, 0, 0)" && onBg !== offBg && onBg !== "rgba(0, 0, 0, 0)";
+    })(), (() => {
+      const sws = [...panel.querySelectorAll(".eva-sw")];
+      const on = sws.find((b) => b.getAttribute("aria-checked") === "true");
+      const off = sws.find((b) => b.getAttribute("aria-checked") === "false");
+      return on && off ? `承認 ${getComputedStyle(on).backgroundColor} / 否定 ${getComputedStyle(off).backgroundColor}` : "(缺)";
+    })());
+    // —— 模型 / 推理等级选择器（官方 data-slot 钩子，元素在覆盖层之外）——
+    const slotRules = [...document.styleSheets].flatMap((sh) => {
+      try { return [...sh.cssRules]; } catch { return []; }
+    }).filter((r) => r.selectorText && r.selectorText.includes("conversation.input.model"));
+    // —— P4：警示带带宽统一 + 侧栏与底部同款 ——
+    const p4Rules = [...document.styleSheets].flatMap((sh) => {
+      try { return [...sh.cssRules]; } catch { return []; }
+    }).filter((r) => r.selectorText);
+    check("P4：三条警示带带宽统一为 5px（输入框原来是 6px，是唯一不一致的一条）", (() => {
+      const bands = p4Rules.filter((r) => r.cssText &&
+        /repeating-linear-gradient/.test(r.cssText) &&
+        /(data-composer-card|conversation\.input\.permission|_panelList)/.test(r.selectorText || ""));
+      const sized = bands.filter((r) => /background-size:\s*5px 100%/.test(r.cssText));
+      return bands.length >= 3 && sized.length === bands.length;
+    })(), (() => {
+      const bands = p4Rules.filter((r) => r.cssText &&
+        /repeating-linear-gradient/.test(r.cssText) &&
+        /(data-composer-card|conversation\.input\.permission|_panelList)/.test(r.selectorText || ""));
+      return bands.map((r) => (r.selectorText || "").slice(0, 34) + "→" +
+        (/background-size:\s*5px 100%/.test(r.cssText) ? "5px" : "非5px")).join(" | ");
+    })());
+    check("侧栏警示带与屏幕底部那条：同色系、同斜纹、**同亮度**", (() => {
+      // 两条的亮度表达方式不同但必须等价：
+      //   底部 .eva-hazard  → 元素 opacity:.4 压暗（整条一起压）
+      //   侧栏 ._panelList → 不能对整个侧栏用 opacity（会把内容一起淡化），
+      //                       所以把 40% 折进颜色 color-mix(... 40%, transparent)
+      // 合成结果相同（琥珀 40% alpha）。这里断言**数值等价**，不锁实现写法。
+      const CANON_PATTERN = "repeating-linear-gradient(45deg,";
+      const find = (sel) => p4Rules.find((r) => (r.selectorText || "").trim() === sel);
+      const side = find("html[data-eva-magi] body [data-slot=\"sidebar\"] [class*=\"_root\"]:has(> nav[class*=\"_panelList\"])");
+      const tape = find(".eva-hazard");
+      if (!side || !tape) return false;
+      const flat = (r) => String(r.cssText || "").replace(/\s+/g, "");
+      const sc = flat(side), tc = flat(tape);
+      const sideFade = parseFloat((/eva-secondary\)(\d+(?:\.\d+)?)%/.exec(sc) || [])[1] ?? "100") / 100;
+      const tapeFade = parseFloat((/opacity:([\d.]+)/.exec(tc) || [])[1] ?? "1");
+      return sc.includes(CANON_PATTERN) && tc.includes(CANON_PATTERN) &&
+        sc.includes("var(--eva-secondary)") &&
+        tc.includes("var(--eva-secondary)") &&
+        Math.abs(sideFade - tapeFade) < 0.001;
+    })(), (() => {
+      const find = (sel) => p4Rules.find((r) => (r.selectorText || "").trim() === sel);
+      const side = find("html[data-eva-magi] body [data-slot=\"sidebar\"] [class*=\"_root\"]:has(> nav[class*=\"_panelList\"])");
+      const tape = find(".eva-hazard");
+      if (!side || !tape) return "(未找到规则)";
+      const flat = (r) => String(r.cssText || "").replace(/\s+/g, "");
+      const sideFade = parseFloat((/eva-secondary\)(\d+(?:\.\d+)?)%/.exec(flat(side)) || [])[1] ?? "100");
+      const tapeFade = parseFloat((/opacity:([\d.]+)/.exec(flat(tape)) || [])[1] ?? "1") * 100;
+      return `侧栏 ${sideFade}% vs 底部 ${tapeFade}%`;
+    })());
+
+    // —— P3：侧栏分组标题 ——
+    const headRules = [...document.styleSheets].flatMap((sh) => {
+      try { return [...sh.cssRules]; } catch { return []; }
+    }).filter((r) => r.selectorText && /_panelTitle|_sectionLabel|_panelRow|_sectionHeader/.test(r.selectorText));
+    check("侧栏分组标题用「类名可读后缀」匹配（哈希前缀变了也不受影响）", (() => {
+      // DSH 的类名是 CSS-module 的 Hash_name 形式：用 [class*="_sectionLabel"]
+      // 匹配可读后缀，比写死 .tPVXea_sectionLabel 稳健得多。
+      // 这里同时禁止在类选择器里写死哈希前缀（.xxxxxx_name 这种形态）。
+      return headRules.length >= 2 && headRules.every((r) => !/\.[A-Za-z0-9]{5,8}_/.test(r.selectorText));
+    })(), (() => headRules.map((r) => r.selectorText.slice(0, 52)).join(" | ") || "(未找到)" )());
+    check("侧栏分组标题锚在 [data-slot=sidebar] 并同时覆盖两种主题", (() =>
+      headRules.length >= 2 &&
+      headRules.every((r) => r.selectorText.includes('[data-slot="sidebar"]') &&
+        !r.selectorText.includes("data-ds-dark-theme")))(),
+      (() => headRules.length + " 条"));
+
+    // —— 七段大时钟 ——
+    check("大时钟面板存在：6 位七段 + 4 个灯 + 日期", (() => {
+      const el = layer.querySelector(".eva-clockpanel");
+      if (!el) return false;
+      const digits = el.querySelectorAll(".eva-cp-dg");
+      const lamps = el.querySelectorAll(".eva-cp-lamps span");
+      return digits.length === 6 && lamps.length === 4 &&
+        Boolean(el.querySelector(".eva-cp-date")) &&
+        Boolean(el.querySelector(".eva-cp-tz")) &&
+        Boolean(el.querySelector(".eva-cp-utc"));
+    })(), (() => {
+      const el = layer.querySelector(".eva-clockpanel");
+      if (!el) return "(无时钟)";
+      return `七段 ${el.querySelectorAll(".eva-cp-dg").length} · 灯 ${el.querySelectorAll(".eva-cp-lamps span").length}`;
+    })());
+    check("七段靠切换 defs 里的字形引用（use href 指向 #eva-dN）", (() => {
+      const el = layer.querySelector(".eva-clockpanel");
+      if (!el) return false;
+      const hrefs = [...el.querySelectorAll(".eva-cp-dg .eva-cp-lit")].map((u) => u.getAttribute("href"));
+      return hrefs.length === 6 && hrefs.every((h) => /^#eva-d[0-9]$/.test(h));
+    })(), (() => [...(layer.querySelector(".eva-clockpanel")?.querySelectorAll(".eva-cp-dg .eva-cp-lit") || [])].map((u) => u.getAttribute("href")).join(" "))());
+    check("日期已填真实值（不是占位符）", (() => {
+      const el = layer.querySelector(".eva-cp-date");
+      return Boolean(el) && /^\d{4}-\d{2}-\d{2}$/.test(el.textContent);
+    })(), (() => layer.querySelector(".eva-cp-date")?.textContent || "(无)")());
+    check("字形定义齐全（defs 里有 10 个数字）", (() => {
+      const ids = [...layer.querySelectorAll("defs g")].map((g) => g.id).filter((id) => /^eva-d\d$/.test(id));
+      return ids.length === 10;
+    })(), (() => [...layer.querySelectorAll("defs g")].map((g) => g.id).join(" "))());
+
+    check("播放/暂停图标不能写反：未播放显示 ▶，播放中显示 ⏸", (() => {
+      const rules = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules]; } catch { return []; }
+      });
+      const find = (sel) => rules.find((r) => (r.selectorText || "").trim() === sel);
+      const playDefault = find(".eva-mp-ico-play");       // 默认态：play 应可见（不设 display:none）
+      const pauseDefault = find(".eva-mp-ico-pause");     // 默认态：pause 应隐藏
+      const pauseOnPlaying = rules.find((r) => r.selectorText &&
+        r.selectorText.includes('data-playing="1"') && r.selectorText.includes(".eva-mp-ico-pause"));
+      const playOnPlaying = rules.find((r) => r.selectorText &&
+        r.selectorText.includes('data-playing="1"') && r.selectorText.includes(".eva-mp-ico-play"));
+      return Boolean(pauseDefault) && /none/.test(pauseDefault.style.display || "") &&
+        !(playDefault && /none/.test(playDefault.style.display || "")) &&
+        Boolean(pauseOnPlaying) && /block/.test(pauseOnPlaying.style.display || "") &&
+        Boolean(playOnPlaying) && /none/.test(playOnPlaying.style.display || "");
+    })(), (() => {
+      const rules = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules]; } catch { return []; }
+      });
+      return rules.filter((r) => r.selectorText && /eva-mp-ico/.test(r.selectorText))
+        .map((r) => r.selectorText.trim() + "=" + (r.style.display || "visible")).join(" | ");
+    })());
+
+    // —— 音乐播放器 ——
+    check("系统播放器结构：机械双环、三个控制按钮，无独立音频或选文件入口", (() => {
+      const el = layer.querySelector(".eva-mp");
+      if (!el) return false;
+      return el.querySelectorAll(".eva-mp-ring").length === 2 &&
+        el.querySelectorAll(".eva-mp-btn").length === 3 &&
+        !el.querySelector("audio,input[type=file]");
+    })(), (() => {
+      const el = layer.querySelector(".eva-mp");
+      if (!el) return "(无播放器)";
+      return `圆轮 ${el.querySelectorAll(".eva-mp-ring").length} · 按钮 ${el.querySelectorAll(".eva-mp-btn").length}`;
+    })());
+    check("机械环默认暂停、播放时才转（animation-play-state 切换，不重排）", (() => {
+      const rules = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules]; } catch { return []; }
+      }).filter((r) => r.selectorText && r.selectorText.includes(".eva-mp-ring"));
+      const base = rules.find((r) => r.selectorText.trim() === ".eva-mp-ring");
+      const playing = rules.find((r) => r.selectorText.includes('data-playing="1"'));
+      const spin = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules]; } catch { return []; }
+      }).some((r) => r.type === CSSRule.KEYFRAMES_RULE && r.name === "mp-spin");
+      return Boolean(base) && /paused/.test(base.style.animationPlayState || "") &&
+        Boolean(playing) && /running/.test(playing.style.animationPlayState || "") && spin;
+    })(), (() => {
+      const rules = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules]; } catch { return []; }
+      }).filter((r) => r.selectorText && r.selectorText.includes(".eva-mp-ring"));
+      return rules.map((r) => r.selectorText.trim() + "=" + (r.style.animationPlayState || "?")).join(" | ");
+    })());
+    check("播放器可交互（layer 是 pointer-events:none，这里必须显式打开）", (() => {
+      const rule = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules]; } catch { return []; }
+      }).find((r) => (r.selectorText || "").trim() === ".eva-mp");
+      return Boolean(rule) && /auto/.test(rule.style.pointerEvents || "");
+    })());
+    check("音乐开关可关掉播放器（CSS 里有 data-eva-music=off 规则）", (() => {
+      // 行为断言：真切一下属性再看计算样式
+      const el = layer.querySelector(".eva-mp");
+      if (!el) return false;
+      const html = document.documentElement;
+      const hidden = el.hidden; el.hidden = false;
+      const before = getComputedStyle(el).display;
+      html.setAttribute("data-eva-music", "off");
+      const off = getComputedStyle(el).display;
+      html.removeAttribute("data-eva-music"); el.hidden = hidden;
+      return before !== "none" && off === "none";
+    })());
+
+    check("音乐操作按钮对辅助技术可见", [...layer.querySelectorAll('.eva-mp button,.eva-mp-name')].every(el => !el.closest('[aria-hidden="true"]')));
+
+    // —— 时钟尺寸与分层信息栏 ——
+    check("时钟尺寸滑杆保留缩小范围（0.6–5，步进 0.05）", (() => {
+      const input = panel.querySelector('.eva-row[data-key="clockScale"] input[type="range"]');
+      return Boolean(input) && input.min === "0.6" && input.max === "5" && input.step === "0.05";
+    })(), (() => {
+      const input = panel.querySelector('.eva-row[data-key="clockScale"] input[type="range"]');
+      return input ? `${input.min}–${input.max} 步进 ${input.step}` : "(无滑杆)";
+    })());
+    check("改时钟尺寸会写进 --eva-clock-scale（面板缩小不动对齐位置）", (() => {
+      const input = panel.querySelector('.eva-row[data-key="clockScale"] input[type="range"]');
+      if (!input) return false;
+      input.value = "1.4";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      const applied = getComputedStyle(document.documentElement).getPropertyValue("--eva-clock-scale").trim();
+      const rule = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules]; } catch { return []; }
+      }).find((r) => (r.selectorText || "").trim() === ".eva-clockpanel");
+      // transform-origin 的实际值是 "0px 0px"（带单位），不要写成 /^0 0/
+      const origin = rule ? (rule.style.transformOrigin || rule.style.webkitTransformOrigin || "") : "";
+      const scaled = Boolean(rule) && /--eva-clock-scale/.test(rule.style.transform || "") &&
+        /^0(px)?\s+0(px)?/.test(origin);
+      const ok = Number(applied) === 0.56 && scaled;
+      input.value = "1";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return ok;
+    })(), (() => {
+      const v = getComputedStyle(document.documentElement).getPropertyValue("--eva-clock-scale").trim();
+      const rule = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules]; } catch { return []; }
+      }).find((r) => (r.selectorText || "").trim() === ".eva-clockpanel");
+      return `变量=${v} transform=${rule ? rule.style.transform : "?"}`;
+    })());
+    check("日期、时区与 UTC 在主时间下方独立成栏", (() => {
+      const el = layer.querySelector(".eva-clockpanel");
+      const digits = el.querySelector(".eva-cp-digits").getBoundingClientRect();
+      const fields = [...el.querySelectorAll(".eva-cp-block")].map(node => node.getBoundingClientRect());
+      return fields.length === 3 && fields.every(r => r.top >= digits.bottom && r.width > 50 * Number(getComputedStyle(el).getPropertyValue("--eva-clock-scale"))) && fields.every(r => Math.abs(r.top-fields[0].top)<1);
+    })());
+
+    // —— P5：启动自检 ——
+    check("暴露 diagnose()：只读体检，返回命中/未命中", (() => {
+      const api = globalThis.__EVA_MAGI_THEME__;
+      if (typeof api.diagnose !== "function") return false;
+      const r = api.diagnose();
+      return typeof r.checked === "number" && r.checked >= 10 && Array.isArray(r.missing);
+    })(), (() => {
+      const api = globalThis.__EVA_MAGI_THEME__;
+      if (typeof api.diagnose !== "function") return "(无 diagnose)";
+      const r = api.diagnose();
+      return `检查 ${r.checked} 条，未命中 ${r.missing.length} 条`;
+    })());
+    check("自检确实在查 DOM（测试台没有应用结构 → 应当全部未命中）", (() => {
+      const r = globalThis.__EVA_MAGI_THEME__.diagnose();
+      // 测试台是精简假页面，没有任何应用钩子；若这里报「命中」就说明它没真查
+      return r.missing.length === r.checked;
+    })());
+    check("自检在无会话与侧栏的页面不误报必需钩子", (() => {
+      const r = globalThis.__EVA_MAGI_THEME__.diagnose();
+      return r.missing.every((m) => !m.required && m.what && m.sel);
+    })());
+    check("会话存在时缺失输入区会被标为必需", (() => {
+      const fake = { querySelector: (sel) => sel === "[data-composer-card]" ? {} : null };
+      const r = globalThis.__EVA_MAGI_THEME__.diagnose(fake);
+      return !r.missing.some((m) => m.sel === "[data-composer-card]") &&
+        r.missing.some((m) => m.sel === "[data-composer-input]" && m.required);
+    })());
+
+    // 角色底纹避免整屏紧急警报；跟随官方明暗标记。
+    const emgRules = [...document.styleSheets].flatMap((sh) => {try{return [...sh.cssRules]}catch{return []}});
+    check("两套角色使用自包含 SVG 点缀，无远程图片", layer.querySelectorAll('.eva-character-art svg').length === 2 && !layer.querySelector('.eva-emg image'));
+    const halfPortrait=layer.querySelector('.eva-character-portrait');
+    check("左侧半身线稿与背景共用容器且不拦截输入", Boolean(halfPortrait?.closest('.eva-emg[aria-hidden="true"]')) && getComputedStyle(halfPortrait).pointerEvents === 'none');
+    for (const dark of [false,true]) {
+      document.body.toggleAttribute('data-ds-dark-theme',dark);
+      const source=getComputedStyle(halfPortrait,'::before').maskImage.match(/url\(["']?([^"')]+)/)?.[1];
+      const image=new Image();image.src=source || '';
+      await image.decode().catch(()=>{});
+      check((dark?'明日香':'绫波丽')+'半身线稿实际解码且为竖幅立绘',image.naturalHeight>image.naturalWidth&&image.naturalWidth>500);
+    }
+    check("移除原有警报与 MAGI 三贤人底纹", !/emg-pattern|Melchior|Casper|Balthasar|高能預警/.test(layer.querySelector('.eva-emg').innerHTML));
+    check("角色背景保持静态且支持减少动态效果", getComputedStyle(layer.querySelector('.eva-character-art')).animationName === 'none' && emgRules.some(r => r.media && String(r.conditionText).includes('prefers-reduced-motion')));
+    check("背景默认开启，且开关能关掉它（行为断言）", (() => {
+      const el = layer.querySelector(".eva-emg");
+      if (!el) return false;
+      const html = document.documentElement;
+      const hidden = el.hidden; el.hidden = false;
+      const before = getComputedStyle(el).display;
+      const original = html.getAttribute("data-eva-wallpaper");   // 存原值
+      html.setAttribute("data-eva-wallpaper", "off");
+      const off = getComputedStyle(el).display;
+      // 恢复原值（不能只 removeAttribute —— 后面还有断言要读它，踩过）
+      if (original === null) html.removeAttribute("data-eva-wallpaper");
+      else html.setAttribute("data-eva-wallpaper", original);
+      return before !== "none" && off === "none" && html.getAttribute("data-eva-wallpaper") === original;
+    })());
+    // 原来只覆盖暗色的黑黄贴片，现由 body 上的角色变量覆盖两种模式。
+    check("角色变量可从覆盖层外继承", getComputedStyle(document.body).getPropertyValue('--eva-accent').trim() !== '');
+
+    // —— 左侧边栏：与输入框同一套语言 ——
+    const sideRules = [...document.styleSheets].flatMap((sh) => {
+      try { return [...sh.cssRules]; } catch { return []; }
+    }).filter((r) => r.selectorText && /sidebar/i.test(r.selectorText));
+    check("侧边栏样式主要走官方 data-slot 钩子", (() => {
+      const bySlot = sideRules.filter((r) => r.selectorText.includes('[data-slot="sidebar'));
+      return bySlot.length >= 5 && sideRules.some((r) => r.selectorText.includes('sidebar.brand.name'));
+    })(), (() => sideRules.length + " 条规则，其中 data-slot 钩子 " +
+      sideRules.filter((r) => r.selectorText.includes('[data-slot="sidebar')).length + " 条")());
+    check("侧边栏规则不碰尺寸 / display（slot 是 display:contents，改了就塌）", (() => {
+      const text = sideRules.map((r) => r.cssText).join(" ").replace(/\s+/g, " ");
+      return !/(^|[;{ ])(width|height|min-width|min-height|padding|font-size|display|flex|position)\s*:/.test(text);
+    })(), (() => {
+      const text = sideRules.map((r) => r.cssText).join(" ").replace(/\s+/g, " ");
+      const bad = text.match(/(^|[;{ ])(width|height|min-width|min-height|padding|font-size|display|flex|position)\s*:/g);
+      return bad ? "含:" + bad.join(",") : "未触碰尺寸/display";
+    })());
+    check("侧栏角色变量在 body 定义", getComputedStyle(document.body).getPropertyValue('--eva-control').trim() !== '');
+
+    // —— 输入框整体 + 弹出菜单：EVA「内部/外部」面板语言 ——
+    const boxRules = [...document.styleSheets].flatMap((sh) => {
+      try { return [...sh.cssRules]; } catch { return []; }
+    }).filter((r) => r.selectorText && /data-composer-card|data-composer-input|role="menu"/.test(r.selectorText));
+    check("输入框/菜单样式用官方钩子（data-composer-card / data-composer-input / role=menu）",
+      boxRules.length >= 5, `${boxRules.length} 条规则`);
+    check("这些规则不碰尺寸（卡片 877×98、整行 98px 都不许变）", (() => {
+      const text = boxRules.map((r) => r.cssText).join(" ").replace(/\s+/g, " ");
+      return !/(^|[;{ ])(width|height|min-width|min-height|padding|font-size|display|flex)\s*:/.test(text);
+    })());
+    check("输入框与菜单通过角色变量同步配色", boxRules.some(r => r.cssText.includes('var(--eva-control)')));
+    check("菜单规则带 [data-menu-material] —— 否则被更靠后的同特异性弹层规则盖掉", (() => {
+      // 只取直接的属性选择器形式；:is([role=menu],…) 那条弹层规则里的子串也会命中
+      // [role="menu"]，所以必须显式排除 :is(
+      const menuRules = boxRules.filter((r) =>
+        r.selectorText.includes('[role="menu"]') && !r.selectorText.includes(":is("));
+      return menuRules.length >= 3 && menuRules.every((r) => r.selectorText.includes("data-menu-material"));
+    })(), (() => {
+      const menuRules = boxRules.filter((r) =>
+        r.selectorText.includes('[role="menu"]') && !r.selectorText.includes(":is("));
+      return menuRules.map((r) => (r.selectorText.includes("data-menu-material") ? "✓" : "✗") + r.selectorText.slice(0, 40)).join(" | ");
+    })());
+
+    // —— 访问模式（权限）选择器：EVA「内部/外部」面板语言 ——
+    const permRules = [...document.styleSheets].flatMap((sh) => {
+      try { return [...sh.cssRules]; } catch { return []; }
+    }).filter((r) => r.selectorText && r.selectorText.includes("conversation.input.permission"));
+    check("权限选择器有专门样式，且只用官方 data-slot 钩子（不碰 Vg9r4q 这类哈希类名）",
+      permRules.length >= 2 && permRules.every((r) => !/Vg9r4q/.test(r.selectorText)),
+      `${permRules.length} 条规则`);
+    check("权限选择器不改尺寸（不碰宽高/内边距/字号/display）", (() => {
+      const text = permRules.map((r) => r.cssText).join(" ").replace(/\s+/g, " ");
+      return !/(^|[;{ ])(width|height|min-width|min-height|padding|font-size|display|flex)\s*:/.test(text);
+    })());
+    check("权限与模型共用完整角色规则", permRules.length > 4 && permRules.every(r => r.selectorText.includes('conversation.input.model')));
+
+    check("选择器有专门样式，且只用官方 data-slot 钩子（不碰哈希类名）",
+      slotRules.length >= 3 && slotRules.every((r) => !/VYXhfG|uWtHQG/.test(r.selectorText)),
+      `${slotRules.length} 条规则`);
+    check("模型选择器使用全局角色色桥", slotRules.some(r => r.cssText.includes('var(--eva-accent)')) && getComputedStyle(document.body).getPropertyValue('--eva-on-accent').trim() !== '');
+    check("这些规则不改尺寸（不碰宽高/内边距/字号/display）", (() => {
+      const text = slotRules.map((r) => r.cssText).join(" ").replace(/\s+/g, " ");
+      return !/(^|[;{ ])(width|height|min-width|min-height|padding|font-size|display|flex)\s*:/.test(text);
+    })(), (() => {
+      const text = slotRules.map((r) => r.cssText).join(" ").replace(/\s+/g, " ");
+      const bad = text.match(/(^|[;{ ])(width|height|min-width|min-height|padding|font-size|display|flex)\s*:/g);
+      return bad ? "含:" + bad.join(",") : "未触碰尺寸属性";
+    })());
+
+    check("面板含 11 个开关 + 4 个滑杆",
+      swCount === 11 && rangeCount === 4, `switch=${swCount} range=${rangeCount}`);
+    check("每个开关都带 data-key 与 role=switch",
+      [...panel.querySelectorAll(".eva-sw")]
+        .every((b) => b.dataset.key && b.getAttribute("role") === "switch"));
+
+    hudEl.click();
+    check("点击仪表展开面板", panel.hidden === false);
+    check("展开后 aria-expanded 同步", hudEl.getAttribute("aria-expanded") === "true");
+    check("换成印章后开关尺寸不变（面板布局不动）", (() => {
+      const sws = [...panel.querySelectorAll(".eva-sw")].filter(el => el.getClientRects().length);
+      const widths = new Set(sws.map((b) => Math.round(b.getBoundingClientRect().width)));
+      const heights = new Set(sws.map((b) => Math.round(b.getBoundingClientRect().height)));
+      return widths.size === 1 && heights.size === 1;
+    })(), (() => {
+      const sws = [...panel.querySelectorAll(".eva-sw")].filter(el => el.getClientRects().length);
+      return `宽 ${[...new Set(sws.map((b) => Math.round(b.getBoundingClientRect().width)))]} 高 ${[...new Set(sws.map((b) => Math.round(b.getBoundingClientRect().height)))]}`;
+    })());
+
+
+
+    const wallBtn = panel.querySelector('button[data-key="wallpaper"]');
+    check("背景默认开启（开关显示「承認」）",
+      wallBtn.getAttribute("aria-checked") === "true" && wallBtn.textContent === "承認", wallBtn.textContent);
+    check("默认把背景写进 <html> 标记", root.getAttribute("data-eva-wallpaper") === "on",
+      root.getAttribute("data-eva-wallpaper"));
+    wallBtn.click();
+    check("点一下关闭（否定 + 标记 off）",
+      wallBtn.getAttribute("aria-checked") === "false" && root.getAttribute("data-eva-wallpaper") === "off",
+      wallBtn.textContent + " / " + root.getAttribute("data-eva-wallpaper"));
+    check("背景开关已存进 localStorage", (() => {
+      try { return JSON.parse(localStorage.getItem(OPTIONS_KEY)).wallpaper === false; } catch { return false; }
+    })());
+    wallBtn.click();
+    check("再点一下回到开启", wallBtn.getAttribute("aria-checked") === "true" &&
+      root.getAttribute("data-eva-wallpaper") === "on", wallBtn.textContent);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    check("Esc 收起面板", panel.hidden === true);
+    hudEl.click();
+    document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    check("点面板外面收起面板", panel.hidden === true);
+    // —— 仪表缩放 ——
+    check("默认缩放 1.5（写进 --eva-hud-scale）",
+      root.style.getPropertyValue("--eva-hud-scale").trim() === "1.5",
+      root.style.getPropertyValue("--eva-hud-scale"));
+    check("设置面板独立于仪表缩放", panel.parentElement === layer && getComputedStyle(panel).transform === "none");
+    const scaleRange = panel.querySelector('.eva-row[data-key="hudScale"] input[type="range"]');
+    check("面板有仪表尺寸滑杆（范围 0.6–5、步进 0.05）",
+      Boolean(scaleRange) && scaleRange.min === "0.6" && scaleRange.max === "5" && scaleRange.step === "0.05",
+      scaleRange && `${scaleRange.min}-${scaleRange.max}/${scaleRange.step}`);
+    check("时钟与仪表共享范围和步长", (() => {
+      const clockRange=panel.querySelector('[data-key="clockScale"] input');
+      return scaleRange.min===clockRange.min&&scaleRange.max===clockRange.max&&scaleRange.step===clockRange.step;
+    })());
+    check("放大空间覆盖旧范围（上限 5 > 2.3）", Number(scaleRange.max) > 2.3);
+    scaleRange.value = "1.35";
+    scaleRange.dispatchEvent(new Event("input", { bubbles: true }));
+    check("拖滑杆 → 改 --eva-hud-scale 并持久化",
+      root.style.getPropertyValue("--eva-hud-scale").trim() === "1.35" &&
+        (() => { try { return JSON.parse(localStorage.getItem(OPTIONS_KEY)).hudScale === 1.35; } catch { return false; } })(),
+      root.style.getPropertyValue("--eva-hud-scale"));
+    check("缩放用 transform 实现，且 origin 固定在右下角（放大不会漂）", (() => {
+      const all = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules].map((r) => r.cssText); } catch { return []; }
+      }).join(" ");
+      return all.includes("--eva-hud-scale") && all.includes("transform-origin");
+    })());
+    check("仪表基准宽度固定，并与时钟的新标尺一致", (() => {
+      const st = layer.querySelector(".eva-corner-stack");
+      const width = parseFloat(getComputedStyle(st).width);
+      const clockWidth = parseFloat(getComputedStyle(layer.querySelector(".eva-clockpanel")).width);
+      return Math.abs(width - clockWidth * .4) < .1;
+    })());
+    // —— 中央教条区下方 TPS 波形面板 ——
+
+    check("两个方块都常亮（不再闪烁）", (() => {
+      const a = layer.querySelector(".eva-tps-head i");
+      const b = layer.querySelector(".eva-pilot-status i");
+      if (!a || !b) return false;
+      return getComputedStyle(a).animationName === "none" && getComputedStyle(b).animationName === "none";
+    })(), (() => {
+      const a = layer.querySelector(".eva-tps-head i");
+      return a ? getComputedStyle(a).animationName : "(无元素)";
+    })());
+    check("TPS 面板高度不随读数位数变化（波形波动时仪表不变大）", (() => {
+      const panel = layer.querySelector(".eva-tps");
+      const now = layer.querySelector(".eva-tps-now");
+      const peak = layer.querySelector(".eva-tps-peak");
+      const avg = layer.querySelector(".eva-tps-avg");
+      const h = () => Math.round(panel.getBoundingClientRect().height);
+      const w = () => Math.round(panel.getBoundingClientRect().width);
+      now.textContent = "—"; peak.textContent = "—"; avg.textContent = "—";
+      const h1 = h(), w1 = w();
+      now.textContent = "88888"; peak.textContent = "88888"; avg.textContent = "88888";
+      const h2 = h(), w2 = w();
+      now.textContent = "1234567"; peak.textContent = "1234567"; avg.textContent = "1234567";
+      const h3 = h(), w3 = w();
+      now.textContent = "—"; peak.textContent = "—"; avg.textContent = "—";
+      return h1 === h2 && h2 === h3 && w1 === w2 && w2 === w3;
+    })(), (() => {
+      const panel = layer.querySelector(".eva-tps");
+      const now = layer.querySelector(".eva-tps-now");
+      const h = () => Math.round(panel.getBoundingClientRect().height);
+      now.textContent = "—"; const a = h();
+      now.textContent = "88888"; const b = h();
+      now.textContent = "—";
+      return `— 时 ${a}px / 88888 时 ${b}px`;
+    })());
+
+    check("TPS 面板存在且结构完整（头/波形/页脚 + 折线）", (() => {
+      const panel = layer.querySelector(".eva-tps");
+      if (!panel) return false;
+      return Boolean(panel.querySelector(".eva-tps-head")) &&
+        Boolean(panel.querySelector("polyline.eva-tps-line")) &&
+        Boolean(panel.querySelector(".eva-tps-foot")) &&
+        Boolean(panel.querySelector(".eva-tps-now"));
+    })());
+    check("TPS 面板与中央教条区保持同宽", (() => {
+      const width = selector => layer.querySelector(selector).getBoundingClientRect().width;
+      return Math.abs(width(".eva-tps") - width(".eva-hud")) < .1;
+    })());
+    check("TPS 面板跟随缩放（用同一个 --eva-hud-scale）", (() => {
+      const all = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules].map((r) => r.cssText); } catch { return []; }
+      }).join(" ");
+      return layer.querySelector(".eva-tps").parentElement === layer.querySelector(".eva-corner-stack") &&
+        /\.eva-corner-stack\s*\{[^}]*scale\(var\(--eva-hud-scale/.test(all) && getComputedStyle(layer.querySelector(".eva-tps")).transform === "none";
+    })());
+    check("TPS 面板受「仪表」开关控制（hud off 时隐藏）", (() => {
+      const all = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules].map((r) => r.cssText); } catch { return []; }
+      }).join(" ");
+      return /data-eva-hud="off"[^{]*\.eva-tps\s*\{[^}]*display:\s*none/.test(all);
+    })());
+    check("TPS 折线初始有 44 个点（画得出波形）", (() => {
+      const pts = layer.querySelector(".eva-tps-line").getAttribute("points") || "";
+      return pts.trim().split(/\s+/).length === 44;
+    })(), (layer.querySelector(".eva-tps-line").getAttribute("points") || "").trim().split(/\s+/).length + " 点");
+
+    check("推算标记用样式而不是加字（加字会撑宽整栈）", (() => {
+      const all = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules].map((r) => r.cssText); } catch { return []; }
+      }).join(" ");
+      return all.includes("data-inferred") && /text-decoration:\s*underline/.test(all);
+    })());
+    check("三条（2 标签 + 仪表）宽度对齐：栈与面都用 stretch，标签内两端对齐", (() => {
+      const all = [...document.styleSheets].flatMap((sh) => {
+        try { return [...sh.cssRules].map((r) => r.cssText); } catch { return []; }
+      }).join(" ");
+      return /align-items:\s*stretch/.test(all) && /justify-content:\s*space-between/.test(all) &&
+        !/\.eva-corner-stack\s*\{[^}]*align-items:\s*flex-end/.test(all);
+    })());
+    check("面板保持固定字号且有明确关闭入口", getComputedStyle(panel).fontSize === "12px" && Boolean(panel.querySelector('.eva-panel-close[aria-label="关闭显示设定"]')));
+    check("缩放不影响扫描线滑杆的置灰逻辑", (() => {
+      globalThis.__EVA_MAGI_THEME__.set("scanlines", false);
+      const dimmed = scaleRange.closest(".eva-row").dataset.dim;
+      globalThis.__EVA_MAGI_THEME__.set("scanlines", true);
+      return dimmed === undefined || dimmed === "0";
+    })());
+
+    check("Console 钩子与面板共用同一通道（__EVA_MAGI_THEME__.set 就是面板的 set）",
+      globalThis.__EVA_MAGI_THEME__.set === globalThis.__EVA_MAGI_THEME__.set && typeof globalThis.__EVA_MAGI_THEME__.set === "function");
+
+    // ---- 全局钩子 ----
+    const api = globalThis.__EVA_MAGI_THEME__;
+    check("暴露了全局开关钩子 __EVA_MAGI_THEME__", Boolean(api) && typeof api.set === "function" && typeof api.reset === "function");
+
+    // ---- 选项行为 ----
+    api.set("scanlines", true);
+    check("set('scanlines', true) 立刻反映到 DOM（默认是关，所以这一步真的验到了 setter）", root.getAttribute("data-eva-scan") === "on");
+    api.set("hardEdges", false);
+    check("set('hardEdges', false) 切成 soft", root.getAttribute("data-eva-edges") === "soft");
+    api.set("wallpaper", false);
+    check("废弃功能的节点、设置项与根标记均已移除", !layer.querySelector('.eva-magi-vig,.eva-cyc,.eva-row[data-key="motion"],.eva-row[data-key="vignette"]') && ['data-eva-vig','data-eva-motion','data-eva-grid','data-eva-top'].every(attr => !root.hasAttribute(attr)));
+    for (const key of ["grid", "topLine", "vignette", "motion"]) {
+      let removed = false; try { api.set(key, true); } catch { removed = true; }
+      check("已移除的选项不能重新启用：" + key, removed && !Object.hasOwn(api.options, key));
+    }
+    let threw = false;
+    try { api.set("notAnOption", 1); } catch (error) { threw = true; }
+    check("set() 对未知选项抛错（不静默忽略）", threw);
+    check("选项写入了 localStorage", (() => {
+      try { return JSON.parse(localStorage.getItem(OPTIONS_KEY)).scanlines === true; } catch { return false; }
+    })());
+
+    check("边界前一秒仍指向最近的切换点", exports.nextPricingChangeAt(bj(2026, 10, 23, 9) - 1) === bj(2026, 10, 23, 9));
+    check("交互控件没有被 aria-hidden 的祖先隐藏", !hudEl.closest('[aria-hidden="true"]') &&
+      [...panel.querySelectorAll('[role="switch"]')].every((el) => Boolean(el.getAttribute("aria-label"))));
+    api.set("hudScale", 0);
+    check("零缩放被收敛到合法下限", api.options.hudScale === 0.6 && !root.style.cssText.includes("Infinity"));
+    api.set("hudScale", 1.5);
+    let badNumber = false;
+    try { api.set("clockScale", Infinity); } catch { badNumber = true; }
+    check("无穷缩放被拒绝", badNumber && api.options.clockScale === 1);
+    hudEl.click();
+    check("打开设置把焦点交给面板", panel.contains(document.activeElement));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    check("Escape 关闭设置并把焦点还给仪表", panel.hidden && document.activeElement === hudEl);
+
+    // 重播、取消及卸载必须同步释放真实 GIF，不能只藏住仍在解码的图片。
+    const replay = panel.querySelector('.eva-replay-boot');
+    replay.click();
+    const firstReplay = document.querySelector('.eva-boot'), firstImage = firstReplay?.querySelector('img');
+    replay.click();
+    check("连续重播仅保留一个开机画面并清理旧图片", document.querySelectorAll('.eva-boot').length === 1 && !firstReplay.isConnected && !firstImage.hasAttribute('src'));
+    const currentImage = document.querySelector('.eva-boot img');
+    api.set('boot', false);
+    check("关闭开机序列即时取消 GIF，保留手动重播", !document.querySelector('.eva-boot') && !currentImage.hasAttribute('src') && !replay.disabled);
+    replay.click();
+    const hiddenImage = document.querySelector('.eva-boot img');
+    Object.defineProperty(document, 'hidden', {configurable:true,value:true}); document.dispatchEvent(new Event('visibilitychange'));
+    check("切到后台停止 GIF 解码并保留驾驶员选择", document.querySelector('.eva-boot')?.dataset.phase==='select' && !hiddenImage.hasAttribute('src'));
+    api.set('boot',false);
+    delete document.hidden; document.dispatchEvent(new Event('visibilitychange'));
+    replay.click();
+    const fullBoot = document.querySelector('.eva-boot'), fullImage = fullBoot.querySelector('img');
+    await new Promise(resolve => { if (fullImage.complete) resolve(); else {fullImage.addEventListener('load', resolve, {once:true});setTimeout(resolve,1000);} });
+    await new Promise(resolve => setTimeout(resolve, 3500));
+    check("GIF 两倍速循环但总时长未到时保留画面", fullBoot.isConnected && fullImage.hasAttribute('src'));
+    await new Promise(resolve => setTimeout(resolve, 400));
+    check("3.84 秒开场结束进入 NERV 警报并移除 GIF 来源", fullBoot.isConnected && fullBoot.dataset.phase==='emergency' && !fullImage.hasAttribute('src') && !!fullBoot.querySelector('.eva-emergency svg'));
+    await new Promise(resolve => setTimeout(resolve, 3050));
+    check("三秒警报后进入驾驶员选择并回收警报图案", fullBoot.isConnected && fullBoot.dataset.phase==='select' && !fullBoot.querySelector('.eva-emergency') && fullBoot.querySelectorAll('.eva-pilot-card').length===2);
+    fullBoot.querySelector('.eva-boot-exit').click();
+    check("跳过选择会释放焦点与宿主 inert 状态", !fullBoot.isConnected && !document.querySelector('.eva-magi-layer').inert);
+    replay.click();
+    const disposedImage = document.querySelector('.eva-boot img');
+
+    // ================= 回收 =================
+    for (const effect of ctx.state.effects) effect.dispose();
+    check("回收后皮肤样式表被移除", !document.head.querySelector('style[data-plugin-css="' + PACKAGE + ':skin"]'));
+    check("回收后装饰层被移除", !document.body.querySelector(".eva-magi-layer"));
+    check("回收后开机序列及图片来源均被移除", !document.body.querySelector(".eva-boot") && !disposedImage.hasAttribute("src"));
+    check("回收后根元素开关标记被清干净",
+      !root.hasAttribute("data-eva-magi") && !root.hasAttribute("data-eva-scan") && !root.hasAttribute("data-eva-edges"));
+    check("回收后令牌层被注销", ctx.state.tokenDisposed === 1, String(ctx.state.tokenDisposed));
+
+    check("卸载后全局 API 和缩放变量被清除", !globalThis.__EVA_MAGI_THEME__ && !root.style.getPropertyValue("--eva-clock-scale"));
+    let stale = false;
+    try { api.set("hardEdges", true); } catch { stale = true; }
+    check("旧 API 引用不能复活卸载的主题", stale && !root.hasAttribute("data-eva-magi"));
+
+    // ================= 实例 2：选项持久化 =================
+    // 上一个实例把 scanlines=true / wallpaper=false / hardEdges=false 写进了 localStorage，
+    // 新实例必须在 apply 时就恢复它们 —— 这是「刷新后设置还在」的机制本身。
+    // 同时：开机序列的会话标记已写入，第二个实例保留重播能力，但不再自动播放。
+    const ctx2 = makeCtx();
+    exports.apply(ctx2);
+    check("新实例从 localStorage 恢复了选项（scanlines 仍为 on）", root.getAttribute("data-eva-scan") === "on");
+    check("新实例恢复了角色背景关闭", root.getAttribute("data-eva-wallpaper") === "off");
+    check("开机序列每会话只自动播放一次", !document.querySelector(".eva-boot"));
+    globalThis.__EVA_MAGI_THEME__.reset();
+    check("reset() 回到默认值（扫描线关、角色背景开、硬边恢复）",
+      root.getAttribute("data-eva-scan") === "off" && root.getAttribute("data-eva-wallpaper") === "on" &&
+        root.getAttribute("data-eva-edges") === "hard",
+      `scan=${root.getAttribute("data-eva-scan")} wallpaper=${root.getAttribute("data-eva-wallpaper")} edges=${root.getAttribute("data-eva-edges")}`);
+    for (const effect of ctx2.state.effects) effect.dispose();
+    // 倍率标尺迁移必须保留物理尺寸，并在刷新时只迁移一次。
+    for (const oldScale of [0.6, 0.65, 2]) {
+      localStorage.setItem(OPTIONS_KEY, JSON.stringify({clockScale: oldScale, wallpaper: false, vignette: true, motion: false, grid: true, topLine: true, boot: false}));
+      const migration = makeCtx(); exports.apply(migration);
+      const migrated = globalThis.__EVA_MAGI_THEME__.options.clockScale;
+      check("旧倍率 " + oldScale + " 换算后实际尺寸不变", Math.abs(document.querySelector('.eva-clockpanel').getBoundingClientRect().width - 392 * oldScale) < 0.1 && Math.abs(migrated * 0.4 - oldScale) < 1e-8);
+      check("换算保留其他设置并保存标尺版本", globalThis.__EVA_MAGI_THEME__.options.wallpaper === false && JSON.parse(localStorage.getItem(OPTIONS_KEY)).clockScaleUnit === 0.4 && ["grid", "topLine", "vignette", "motion"].every(key => !Object.hasOwn(JSON.parse(localStorage.getItem(OPTIONS_KEY)), key)));
+      for (const effect of migration.state.effects) effect.dispose();
+      const restored = makeCtx(); exports.apply(restored);
+      check("刷新不重复换算旧倍率 " + oldScale, globalThis.__EVA_MAGI_THEME__.options.clockScale === migrated && Math.abs(document.querySelector('.eva-clockpanel').getBoundingClientRect().width - 392 * oldScale) < 0.1);
+      if (oldScale === 0.6) {
+        globalThis.__EVA_MAGI_THEME__.set('clockScale', 0.6);
+        check("新下限可以缩到原尺寸的四成", Math.abs(document.querySelector('.eva-clockpanel').getBoundingClientRect().width - 392 * 0.24) < 0.1);
+      }
+      for (const effect of restored.state.effects) effect.dispose();
+    }
+    try { localStorage.removeItem(OPTIONS_KEY); } catch {}
+
+    // ================= 实例 3~6：点击标签翻面看余额 =================
+    // 余额现在是客户端 fetch 宿主路由（/dsh-eva-magi/balance.json）。
+    // 把 fetch 打桩，走完「成功 / 无密钥 / 宿主没装 / 网络断」四条路径。
+    // 钱包选择与金额归一化属于宿主侧逻辑，由 tests/verify-host.mjs 负责测。
+    const realFetch = globalThis.fetch;
+    const stubFetch = (impl) => { globalThis.fetch = async (...args) => { const response = await impl(...args); return { ok: response.status >= 200 && response.status < 300, ...response }; }; };
+    const settle = () => new Promise((r) => setTimeout(r, 30));
+    const mountFresh = () => {
+      const c = makeCtx();
+      exports.apply(c);
+      return { ctx: c, root: document.body.querySelector(".eva-magi-layer") };
+    };
+
+    {
+      stubFetch(async () => ({ status: 200, json: async () => ({ ok: true, currency: "CNY", balance: 12.34 }) }));
+      const { ctx: c3, root: r3 } = mountFresh();
+      const tags = r3.querySelector(".eva-tags");
+      check("标签块是双面的（正面峰谷 / 背面余额）",
+        tags.querySelectorAll(".eva-tags-face").length === 2 && tags.dataset.face === "front");
+      check("标签块带按钮语义（键盘可达）",
+        tags.getAttribute("role") === "button" && tags.getAttribute("tabindex") === "0");
+      tags.click();
+      check("点击翻到背面", tags.dataset.face === "back");
+      check("翻面时先显示取数中", r3.querySelector(".eva-tag--balance b").textContent === "取得中",
+        r3.querySelector(".eva-tag--balance b").textContent);
+      await settle();
+      check("宿主返回余额 → 显示 ¥12.34", r3.querySelector(".eva-tag--balance b").textContent === "\u00a512.34",
+        r3.querySelector(".eva-tag--balance b").textContent);
+      check("余额就绪后副文案为「残高」",
+        r3.querySelector(".eva-tag--balance small").textContent === "残高");
+      check("背面只剩一个余额标签（合并后），显示余额", (() => {
+        const tags = r3.querySelectorAll(".eva-tags-back .eva-tag");
+        return tags.length === 1 && tags[0].classList.contains("eva-tag--balance") &&
+          r3.querySelector(".eva-tag--balance b").textContent === "¥12.34";
+      })(), r3.querySelectorAll(".eva-tags-back .eva-tag").length + " 个 / " +
+        r3.querySelector(".eva-tag--balance b").textContent);
+      check("合并后的余额标签用的是上面那个（LED）样式",
+        r3.querySelector(".eva-tag--balance").classList.contains("eva-tag--balance"));
+      tags.click();
+      check("再点一次翻回正面", tags.dataset.face === "front");
+      for (const e of c3.state.effects) e.dispose();
+    }
+
+    {
+      // 未配置密钥：副文案要说清原因，而不是笼统的"失败"
+      stubFetch(async () => ({ status: 200, json: async () => ({ ok: false, code: "NO_KEY" }) }));
+      const { ctx: c4, root: r4 } = mountFresh();
+      r4.querySelector(".eva-tags").click();
+      await settle();
+      check("没配密钥 → 取得不可 / 未配置密钥（不编数字）",
+        r4.querySelector(".eva-tag--balance b").textContent === "取得不可" &&
+          r4.querySelector(".eva-tag--balance small").textContent === "未配置密钥",
+        r4.querySelector(".eva-tag--balance b").textContent + "/" + r4.querySelector(".eva-tag--balance small").textContent);
+      for (const e of c4.state.effects) e.dispose();
+    }
+
+    {
+      stubFetch(async () => ({ status: 404, json: async () => ({}) }));
+      const { ctx: c5, root: r5 } = mountFresh();
+      r5.querySelector(".eva-tags").click();
+      await settle();
+      check("宿主半边没装上（404）→ 未対応，且皮肤其余部分照常",
+        r5.querySelector(".eva-tag--balance b").textContent === "未対応" &&
+          Boolean(r5.querySelector(".eva-hud")),
+        r5.querySelector(".eva-tag--balance b").textContent);
+      for (const e of c5.state.effects) e.dispose();
+    }
+
+    {
+      stubFetch(async () => { throw new Error("offline"); });
+      const { ctx: c6, root: r6 } = mountFresh();
+      r6.querySelector(".eva-tags").click();
+      await settle();
+      check("网络不通 → 取得不可 / 网络失败",
+        r6.querySelector(".eva-tag--balance b").textContent === "取得不可" &&
+          r6.querySelector(".eva-tag--balance small").textContent === "网络失败",
+        r6.querySelector(".eva-tag--balance b").textContent + "/" + r6.querySelector(".eva-tag--balance small").textContent);
+      for (const e of c6.state.effects) e.dispose();
+      globalThis.fetch = realFetch;
+    }
+    {
+      // 点击 → 背面，8 秒后自动翻回正面（用同一个 CSS transition，动画一致）
+      stubFetch(async () => ({ status: 200, json: async () => ({ ok: true, currency: "CNY", balance: 5.5 }) }));
+      const c9 = makeCtx();
+      exports.apply(c9);
+      const r9 = document.body.querySelector(".eva-magi-layer");
+      const tags9 = r9.querySelector(".eva-tags");
+      tags9.click();
+      check("点击后翻到背面", tags9.dataset.face === "back");
+      await new Promise((r) => setTimeout(r, 3000));
+      check("3 秒时仍在背面（不会提前翻回）", tags9.dataset.face === "back", tags9.dataset.face);
+      await new Promise((r) => setTimeout(r, 5500));
+      check("8 秒后自动翻回正面", tags9.dataset.face === "front", tags9.dataset.face);
+      // 翻转用的是 CSS transition（两面共用），所以来回动画一致
+      check("翻面靠 CSS transition 实现（来回同一套动画）", (() => {
+        const all = [...document.styleSheets].flatMap((sh) => {
+          try { return [...sh.cssRules].map((r) => r.cssText); } catch { return []; }
+        }).join(" ");
+        return /\.eva-tags\s*\{[^}]*transition:\s*transform/.test(all) && /data-face="back"/.test(all);
+      })());
+      for (const e of c9.state.effects) e.dispose();
+    }
+
+  } catch (error) {
+    check("测试台未捕获异常", false, String(error && error.stack ? error.stack : error));
+  }
+
+  const failed = results.filter((r) => !r.ok);
+  document.getElementById("RESULT").textContent = JSON.stringify({
+    total: results.length,
+    failed: failed.length,
+    failures: failed,
+    results,
+  });
+})();
+</script>
+</body>
+</html>

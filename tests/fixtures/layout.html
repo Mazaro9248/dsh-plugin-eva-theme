@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EVA responsive regression</title>
+<style>
+:root{--sidebar:240px;--right:0px;--composer-height:110px}
+*{box-sizing:border-box}body{margin:0;background:var(--dsw-alias-bg-base,#140d12);color:var(--dsw-alias-label-primary,#fae7df);font:14px/1.5 sans-serif}
+[data-slot="sidebar"]{display:contents}.changed_root{position:fixed;inset:0 auto 0 0;width:var(--sidebar);background:var(--dsw-alias-bg-layer-1);padding:20px}
+.changed_newSession{margin-top:24px;padding:8px}
+.changed_regionArea{position:absolute;left:20px;right:20px;bottom:70px;height:60px}
+.changed_fade{position:absolute;inset:auto 0 0;height:24px;background:linear-gradient(to bottom,transparent,var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-layer-2)));pointer-events:none}
+.fixture-footer{position:absolute;bottom:28px}
+[data-composer-seat]{position:fixed;left:var(--sidebar);right:var(--right);bottom:0;height:calc(var(--composer-height) + 40px);background:linear-gradient(180deg,transparent 0,var(--dsw-alias-bg-base) 36px)}
+[data-conversation-header]{position:fixed;left:var(--sidebar);right:var(--right);top:0;height:42px;padding:10px 18px;background:var(--dsw-alias-bg-layer-1)}
+[data-conversation-region="chat"]{position:fixed;left:var(--sidebar);right:var(--right);top:42px;bottom:0;overflow:hidden;padding:20px}
+[data-composer-card]{position:fixed;left:calc(var(--sidebar) + 20px);right:calc(var(--right) + 20px);bottom:20px;height:var(--composer-height);max-width:850px;margin:auto;padding:16px;background:var(--dsw-alias-bg-layer-2)}
+[data-composer-input]{outline:none}.changed_primary{position:absolute;right:18px;bottom:12px}.copy{margin-top:120px;max-width:600px;opacity:.6}
+.changed_completed{box-sizing:border-box;display:flex;align-items:center;width:min(100%,600px);min-width:0;height:33px;padding:0 0 8px;border:none;border-bottom:.5px solid #333;background:none;color:var(--dsw-alias-label-secondary);text-align:left;font:inherit}
+.fixture-running{display:flex;gap:6px;align-items:center;font:12px/22px sans-serif;color:#628dfb;--dsw-alias-label-shimmer:#78a2ff}
+.fixture-whale{display:inline-block;width:12px;height:12px;background:currentColor}
+.fixture-shimmer{display:inline-grid;position:relative;color:inherit}.fixture-shimmer-sweep{position:absolute;inset:0;pointer-events:none;color:var(--dsw-alias-label-shimmer);animation:fixture-sweep 1.5s linear infinite}
+.fixture-live-process,.fixture-done-process{border:0;background:none;padding:0;font:12px/22px sans-serif;color:var(--dsw-alias-label-tertiary)}
+@keyframes fixture-sweep{from{opacity:.3}to{opacity:.8}}
+.fixture-selectors{display:flex;gap:12px;margin-top:18px}.fixture-selectors button{border:0;padding:5px 12px;font:12px sans-serif}.fixture-selectors span+span{margin-left:8px}.fixture-menu{position:fixed;top:90px;left:280px;padding:12px;z-index:10}.fixture-menu button{color:inherit;background:none;border:0}#RESULT{display:none}@media(max-width:800px){:root{--sidebar:0px}.changed_root{display:none}}
+</style>
+</head><body data-ds-dark-theme>
+<div data-slot="sidebar"><section class="changed_root"><nav class="changed_panelList">DSH / EVA<br><button class="changed_newSession">新会话</button></nav><div class="changed_regionArea"><div class="changed_fade" aria-hidden="true"></div></div><div class="fixture-footer">插件市场</div></section></div>
+<header data-conversation-header>DSH / EVA — 角色主题预览</header>
+<main data-conversation-region="chat" data-conversation-session="session-layout"><button class="changed_completed" data-turn-process="turn-layout">已完成，用时 1分23秒</button><button class="changed_completed" data-turn-process="turn-empty" disabled>已完成，用时 1秒</button><div class="copy"><h1>角色主题 / PERSONAL THEME</h1><p>这是布局测试台的示例会话，用于检查正文、组件与输入框的配色和缩放。</p><pre>const pilot = currentTheme();</pre>
+<div data-chat-running class="fixture-running"><i class="fixture-whale" aria-hidden="true"></i><span class="fixture-shimmer" data-shimmer><span>深度求索中，用时 2秒 ···</span><span class="fixture-shimmer-sweep" aria-hidden="true" inert>深度求索中，用时 2秒 ···</span></span></div>
+<button class="fixture-live-process" data-process-activity="commands"><span class="fixture-shimmer" data-shimmer><span>正在运行命令</span><span class="fixture-shimmer-sweep" aria-hidden="true" inert>正在运行命令</span></span></button><button class="fixture-done-process" data-process-activity="thinking">已完成分析</button>
+</div></main>
+<div data-composer-seat data-conversation-region="composer"><div data-composer-card><div data-composer-input contenteditable="true">输入消息…</div><button class="changed_add">+</button><button class="changed_primary">发送</button><div class="fixture-selectors"><span data-slot="conversation.input.permission"><button aria-haspopup="menu" aria-expanded="false"><span>工作区内修改</span></button></span><span data-slot="conversation.input.model"><button aria-haspopup="menu" aria-expanded="false"><span>DeepSeek-V41-Flash</span><span>Max</span></button></span></div></div>
+</div>
+<pre id="RESULT">not-run</pre>
+<script>window.__ModuleLoader__={load(d){window.definition=d}};</script><script src="../../lib/client.js"></script>
+<script>
+(async()=>{
+const results=[];
+const check=(name,ok,detail="")=>results.push({name,ok:!!ok,detail});
+const wait=()=>new Promise(r=>setTimeout(r,50));
+const exports=window.definition.factory(()=>{});
+const effects=[];
+let external={ok:true,supported:true,app:null};
+let balancePending=false, pendingSignal=null, mediaReads=0,lastMediaUrl='',mediaSignal=null;
+let commandGate=null,readGate=null,commandFailure=null,readSnapshot=null;
+const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r});return {promise,resolve}};
+const actions=[];
+window.fetch=async(url,init={})=>{
+ if(String(url).includes('balance')){
+  if(balancePending)return new Promise((resolve,reject)=>{pendingSignal=init.signal;init.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true})});
+  return {ok:true,status:200,json:async()=>({ok:true,currency:'CNY',balance:12.34})};
+ }
+ if(init.method==='POST'){
+  const body=JSON.parse(init.body);actions.push(body);
+  const gate=commandGate;commandGate=null;if(gate)await gate.promise;
+  if(commandFailure){const code=commandFailure;commandFailure=null;return {ok:false,status:409,json:async()=>({ok:false,code})}};
+  if(body.action==='playpause'){external={...external,playing:!external.playing,state:external.playing?'paused':'playing'}}
+  else external={...external,title:body.action==='next'?'Next track':'Previous track'};
+  return {ok:true,status:200,json:async()=>({ok:true})};
+ }
+ mediaReads++;lastMediaUrl=String(url);mediaSignal=init.signal;const snapshot=readSnapshot||{...external},gate=readGate;readSnapshot=null;readGate=null;if(gate)await gate.promise;
+ return {ok:true,status:200,json:async()=>snapshot};
+};
+const ctx={
+ effect(fn){const dispose=fn();effects.push(dispose);return dispose},
+ inject(){},
+ theme:{overrideTokens(_name,tokens){
+  const paint=()=>{const mode=document.body.hasAttribute('data-ds-dark-theme')?'dark':'light';for(const [key,value]of Object.entries(tokens))document.body.style.setProperty(key,value[mode])};paint();
+  const observer=new MutationObserver(paint);observer.observe(document.body,{attributes:true,attributeFilter:['data-ds-dark-theme']});
+  return()=>{observer.disconnect();for(const key of Object.keys(tokens))document.body.style.removeProperty(key)}
+ },setTheme(id){document.body.toggleAttribute('data-ds-dark-theme',id==='dark')}}
+};
+try{
+localStorage.clear();sessionStorage.clear();exports.apply(ctx);
+const api=window.__EVA_MAGI_THEME__, layer=document.querySelector('.eva-magi-layer');
+api.set('boot',false);
+// 切换时检验同一批节点原位换色，保留设置、已打开的 portal 和按钮尺寸。
+const switches={...api.options}, controls=[...document.querySelectorAll('.fixture-selectors button')];
+const controlSizes=controls.map(el=>({width:el.offsetWidth,height:el.offsetHeight}));
+const menu=document.createElement('div');menu.className='fixture-menu';menu.setAttribute('role','menu');menu.setAttribute('data-menu-material','');menu.innerHTML='<button role="menuitem">选择模型</button>';document.body.appendChild(menu);
+const snap=()=>({
+ canvas:getComputedStyle(document.body).backgroundColor,
+ card:getComputedStyle(document.querySelector('[data-composer-card]')).backgroundColor,
+ clock:getComputedStyle(layer.querySelector('.eva-clockpanel')).backgroundColor,
+ player:getComputedStyle(layer.querySelector('.eva-mp')).backgroundColor,
+ menu:getComputedStyle(menu).backgroundColor,
+ send:getComputedStyle(document.querySelector('.changed_primary')).backgroundColor,
+ code:getComputedStyle(document.querySelector('.copy pre')).boxShadow
+});
+const first=snap();let previousPortraitMask=null;
+for(const dark of [false,true,false,true]){
+ document.body.toggleAttribute('data-ds-dark-theme',dark);await wait();
+ const name=dark?'明日香':'绫波丽', art=dark?'asuka':'rei';
+ check(name+'：中央教条区只显示当前角色',layer.querySelector('.eva-pilot-name').textContent===name&&!layer.querySelector('.eva-clock,.eva-view,.eva-font,.eva-state,.eva-blocks'));
+ const pilotName=layer.querySelector('.eva-pilot-name'),glyphs=[...name].map((_,i)=>{const range=document.createRange();range.setStart(pilotName.firstChild,i);range.setEnd(pilotName.firstChild,i+1);return range.getBoundingClientRect()});
+ check(name+'：角色名字形使用统一中文字体且基线对齐',getComputedStyle(pilotName).fontFamily.startsWith('"Songti SC"')&&glyphs.every(r=>Math.abs(r.top-glyphs[0].top)<.5&&Math.abs(r.height-glyphs[0].height)<.5),JSON.stringify(glyphs.map(r=>({top:r.top,height:r.height}))));
+ const running=document.querySelector('[data-chat-running]'),process=document.querySelector('.fixture-live-process'),accent=getComputedStyle(pilotName).color;
+ const shimmerHex=exports.PALETTE['label-deep-diving-shimmer'][dark?1:0],shimmerColor='rgb('+[1,3,5].map(i=>parseInt(shimmerHex.slice(i,i+2),16)).join(', ')+')';
+ check(name+'：深度求索正文、鲸尾与活动工具提示使用角色主色',getComputedStyle(running).color===accent&&getComputedStyle(running.querySelector('.fixture-whale')).backgroundColor===accent&&getComputedStyle(process).color===accent);
+ check(name+'：提示扫光使用角色高光且保留宿主动画',[...document.querySelectorAll('.fixture-shimmer-sweep')].every(el=>getComputedStyle(el).color===shimmerColor&&getComputedStyle(el).animationName==='fixture-sweep'));
+ check(name+'：已完成的过程提示保留静态语义色',getComputedStyle(document.querySelector('.fixture-done-process')).color!==accent);
+ check(name+'：角色点缀正确切换',getComputedStyle(layer.querySelector('.eva-character-art--'+art)).display!=='none'&&getComputedStyle(layer.querySelector('.eva-character-art--'+(dark?'rei':'asuka'))).display==='none');
+ const portraitMask=getComputedStyle(layer.querySelector('.eva-character-portrait'),'::before').maskImage;
+ check(name+'：左侧半身线稿随角色切换本地透明素材',portraitMask.includes('/dsh-eva-magi/assets/images/')&&portraitMask!==previousPortraitMask);previousPortraitMask=portraitMask;
+ const a=getComputedStyle(controls[0]),b=getComputedStyle(controls[1]);
+ check(name+'：权限和模型栏配色完全一致',a.color===b.color&&a.backgroundColor===b.backgroundColor&&a.boxShadow===b.boxShadow&&a.backgroundImage===b.backgroundImage);
+ check(name+'：选择栏尺寸不变',controls.every((el,i)=>el.offsetWidth===controlSizes[i].width&&el.offsetHeight===controlSizes[i].height));
+ check(name+'：全部界面及原位 portal 随角色换色',Object.entries(snap()).every(([k,v])=>dark?v===first[k]:v!==first[k]),JSON.stringify(snap()));
+ check(name+'：切换不重建组件或重置尺寸',document.querySelector('.eva-magi-layer')===layer&&JSON.stringify(api.options)===JSON.stringify(switches));
+}
+menu.remove();
+const settings=layer.querySelector('.eva-panel'),advanced=settings.querySelector('.eva-advanced');
+check('设置面板独立挂载，装饰与排版默认折叠',settings.parentElement===layer&&!advanced.open);
+// 计费状态直接驱动文字色；周末与假日均属于低谷。
+const pricingTags=layer.querySelector('.eva-tags'),pricingState=pricingTags.dataset.state;
+for(const dark of [true,false]){
+ document.body.toggleAttribute('data-ds-dark-theme',dark);await wait();
+ for(const state of ['peak','offhours','weekend','holiday']){
+  pricingTags.dataset.state=state;
+  const sample=document.createElement('span');sample.style.color='var(--dsw-alias-state-'+(state==='peak'?'error':'success')+'-primary)';sample.style.backgroundColor='var(--dsw-alias-bg-layer-1)';document.body.appendChild(sample);
+  const expected=getComputedStyle(sample).color;
+  const stateLabel=getComputedStyle(pricingTags.querySelector('.eva-tag--state'));
+  check((dark?'明日香':'绫波丽')+' / '+state+'：状态与倒计时文字按峰红谷绿配色',stateLabel.color===expected&&getComputedStyle(pricingTags.querySelector('.eva-tag--remain')).color===expected);
+  check((dark?'明日香':'绫波丽')+' / '+state+'：状态底色保持中性以承托文字',stateLabel.backgroundColor===getComputedStyle(sample).backgroundColor);
+  sample.remove();
+ }
+}
+pricingTags.dataset.state=pricingState;
+document.body.setAttribute('data-ds-dark-theme','');await wait();
+// 复现远程控制的嵌套对话框保护：多于一个 role=dialog 时拒绝关闭。
+for(const dark of [true,false]){
+ document.body.toggleAttribute('data-ds-dark-theme',dark);await wait();
+ for(const settingsOpen of [false,true]){
+  if(settings.hidden===settingsOpen)layer.querySelector('.eva-hud').click();
+  const remote=document.createElement('div');
+  remote.setAttribute('role','dialog');remote.setAttribute('aria-modal','true');remote.setAttribute('aria-label','远程控制');
+  remote.style.cssText='position:fixed;left:10px;top:10px;z-index:100;width:240px;height:120px;background:var(--dsw-alias-bg-overlay);padding:12px';
+  remote.innerHTML='<button type="button" aria-label="关闭远程控制">×</button>';
+  const close=remote.querySelector('button');
+  close.addEventListener('click',()=>{if(document.querySelectorAll('[role="dialog"]').length>1)return;remote.remove()});
+  document.body.appendChild(remote);await wait();
+  const name=(dark?'明日香':'绫波丽')+' / 设置'+(settingsOpen?'展开':'收起');
+  check(name+'：远程控制是唯一宿主对话框',document.querySelectorAll('[role="dialog"]').length===1);
+  check(name+'：模态弹窗打开时皮肤、立绘和交互组件暂时隐藏',getComputedStyle(layer).visibility==='hidden'&&getComputedStyle(layer.querySelector('.eva-hud')).visibility==='hidden'&&getComputedStyle(layer.querySelector('.eva-character-portrait')).visibility==='hidden');
+  const box=close.getBoundingClientRect(),hit=document.elementFromPoint(box.left+box.width/2,box.top+box.height/2);
+  check(name+'：叉号按钮可接收实际坐标处点击',hit===close||close.contains(hit));
+  close.click();await wait();
+  check(name+'：叉号正常关闭并恢复皮肤且保留设置状态',!remote.isConnected&&getComputedStyle(layer).visibility==='visible'&&settings.hidden!==settingsOpen);
+ }
+ settings.querySelector('.eva-panel-close').click();
+}
+document.body.setAttribute('data-ds-dark-theme','');await wait();
+for(const key of ['hudScale','clockScale']){
+ const row=settings.querySelector('[data-key="'+key+'"]'),input=row.querySelector('input');
+ check(key+'：尺寸步长统一为 0.05',input.step==='0.05');
+ api.set(key,1.5);row.querySelectorAll('.eva-range-button')[1].click();
+ check(key+'：加号每次放大 0.05 并显示倍率',Math.abs(api.options[key]-1.55)<1e-8&&row.querySelector('output').textContent==='1.55×');
+ input.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true,cancelable:true}));
+ check(key+'：方向键按相同步长减小',api.options[key]===1.5);
+ row.querySelectorAll('.eva-range-button')[0].click();row.querySelector('.eva-range-reset').click();
+ check(key+'：单项默认只恢复该组件',api.options[key]===1.5);
+}
+await wait();
+check('恢复默认后时钟与仪表实际宽度一致',Math.abs(layer.querySelector('.eva-clockpanel').getBoundingClientRect().width-layer.querySelector('.eva-hud').getBoundingClientRect().width)<.1);
+
+const background=layer.querySelector('.eva-emg'),portraitNode=layer.querySelector('.eva-character-portrait');
+api.set('wallpaper',false);check('背景开关同时隐藏角色半身线稿',getComputedStyle(background).display==='none');
+api.set('wallpaper',true);api.set('wallpaperStrength',0);check('背景强度为零时半身线稿与几何背景一同透明',getComputedStyle(background).opacity==='0');
+api.set('wallpaperStrength',.5);
+check('半身线稿不拦截点击且不进入辅助技术阅读流',getComputedStyle(portraitNode).pointerEvents==='none'&&Boolean(portraitNode.closest('[aria-hidden="true"]')));
+
+// 任意屏幕尺寸下，开机 GIF 都应适配视口，并保留输入能力。
+layer.querySelector('.eva-replay-boot').click();await wait();
+const boot=document.querySelector('.eva-boot'),gif=boot?.querySelector('img'),bootBox=gif?.getBoundingClientRect();
+check('开机 GIF 正常解码并适配视口',gif?.naturalWidth===256&&bootBox.left>=0&&bootBox.top>=0&&bootBox.right<=innerWidth&&bootBox.bottom<=innerHeight,JSON.stringify(bootBox));
+check('GIF 显示为原先的两倍，窄窗口按可用边长限制',Math.abs(bootBox.width-Math.min(512,innerWidth-24,innerHeight-24))<1);
+check('启动入口承接交互，GIF 保留纯底并提供独立音量控制',getComputedStyle(boot).pointerEvents==='auto'&&boot.dataset.phase==='gif'&&[...boot.children].every(node=>node.matches('img.eva-boot-gif,button.eva-boot-sound'))&&boot.querySelector('.eva-boot-sound').getBoundingClientRect().right<=innerWidth);
+document.body.removeAttribute('data-ds-dark-theme');await wait();
+check('开机播放中切换角色不重启 GIF',!boot.querySelector('.eva-boot-console')&&getComputedStyle(boot).backgroundColor==='rgb(0, 1, 1)'&&boot.querySelector('img')===gif&&gif.naturalWidth===256);
+document.body.setAttribute('data-ds-dark-theme','');await wait();
+check('暗色和亮色的 GIF 阶段均使用素材同色纯背景',!boot.querySelector('.eva-boot-console,.eva-boot-backdrop')&&getComputedStyle(boot).backgroundColor==='rgb(0, 1, 1)');
+api.set('boot',false);check('关闭开机序列移除 GIF 而非只隐藏',!document.querySelector('.eva-boot')&&!gif.hasAttribute('src'));
+const completed=[...document.querySelectorAll('[data-turn-process]')];
+check('已完成用时栏在类名变化及禁用状态下仍有警戒线',completed.every(el=>getComputedStyle(el).backgroundImage.includes('repeating-linear-gradient')&&getComputedStyle(el).backgroundSize==='100% 5px'));
+check('警戒线不改变完成按钮高度',completed.every(el=>Math.abs(el.getBoundingClientRect().height-33)<.1));
+completed[0].addEventListener('click',()=>completed[0].toggleAttribute('data-open'));completed[0].click();
+check('警戒线保留任务过程按钮的折叠交互',completed[0].hasAttribute('data-open')&&!completed[0].disabled);
+check('测绘网格和顶边压力线从界面与选项移除',!layer.querySelector('.eva-magi-grid,.eva-magi-top')&&!layer.querySelector('.eva-row[data-key="grid"],.eva-row[data-key="topLine"]')&&!Object.hasOwn(api.options,'grid')&&!Object.hasOwn(api.options,'topLine'));
+
+const visible=el=>el && getComputedStyle(el).display!=='none' && el.getBoundingClientRect().width>0;
+const rect=el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}};
+const inside=r=>r.left>=-1&&r.top>=-1&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1;
+const validate=(name)=>{
+ const stack=layer.querySelector('.eva-corner-stack'),clock=layer.querySelector('.eva-clockpanel');
+ const hudScale=Number(layer.style.getPropertyValue('--eva-hud-scale')), clockScale=Number(layer.style.getPropertyValue('--eva-clock-scale'));
+ check(name+'：仪表保持设定倍率',hudScale===api.options.hudScale);
+ check(name+'：时钟保留新标尺与实际尺寸关系',Math.abs(clockScale-api.options.clockScale*0.4)<1e-8);
+ check(name+'：组件实际尺寸随倍率变化',Math.abs(rect(stack).width-parseFloat(getComputedStyle(stack).width)*hudScale)<.1&&Math.abs(rect(clock).width-392*clockScale)<.1);
+ check(name+'：两个组件每倍对应相同宽度，仪表与 TPS 等宽',Math.abs(rect(clock).width/api.options.clockScale-rect(stack).width/api.options.hudScale)<.1&&Math.abs(rect(stack).width-rect(layer.querySelector('.eva-hud')).width)<.1&&Math.abs(rect(stack).width-rect(layer.querySelector('.eva-tps')).width)<.1);
+ check(name+'：仪表锚定右下角',Math.abs(rect(stack).bottom-(innerHeight-(document.querySelector('[data-conversation-region]').getBoundingClientRect().width<640?8:18)))<1);
+ const portraitBox=rect(portraitNode),regionBox=rect(document.querySelector('[data-conversation-region]'));
+ const portraitAnchor=regionBox.left+(regionBox.width<640?8:18)+(regionBox.width>900?12:0);
+ check(name+'：半身线稿右移自身六分之一宽且完整容纳于视口',inside(portraitBox)&&Math.abs(portraitBox.left-portraitAnchor-portraitBox.width/6)<1&&portraitBox.width>0&&portraitBox.height>0,JSON.stringify(portraitBox));
+ const composerBox=rect(document.querySelector('[data-composer-card]'));
+ const portraitRoom=composerBox.top-rect(document.querySelector('[data-conversation-header]')).bottom-10;
+ check(name+'：立绘底部紧贴输入框上沿',Math.abs(portraitBox.bottom-composerBox.top)<1,JSON.stringify({portraitBox,composerBox}));
+ check(name+'：立绘达到会话半宽或填满可用高度且保持比例',Math.abs(portraitBox.height/portraitBox.width-1.5)<.01&&portraitBox.width<=regionBox.width*.5+1&&(Math.abs(portraitBox.width-regionBox.width*.5)<1||Math.abs(portraitBox.height-portraitRoom)<1),JSON.stringify({portraitBox,regionBox,portraitRoom}));
+
+};
+for(const [hudScale,clockScale]of [[.6,.6],[1.5,1.5],[5,5]]){
+ api.set('hudScale',hudScale);api.set('clockScale',clockScale);await wait();validate('倍率 '+hudScale+'/'+clockScale);
+ check('布局刷新保留用户倍率',api.options.hudScale===hudScale&&api.options.clockScale===clockScale);
+ const hud=layer.querySelector('.eva-hud');hud.click();
+ const panel=layer.querySelector('.eva-panel');
+ check('设置面板保持可见且不越界',visible(panel)&&inside(rect(panel)),JSON.stringify(rect(panel)));
+ check('设置内容能滚动',getComputedStyle(panel).overflowY==='auto'&&panel.clientHeight>0);
+ const panelBox=rect(panel),regionBox=rect(document.querySelector('[data-conversation-region]'));
+ check('面板位置不跟随组件倍率移动',Math.abs(panelBox.left-regionBox.left-(regionBox.width<640?8:18))<1&&getComputedStyle(panel).transform==='none');
+ const clockBox=rect(layer.querySelector('.eva-clockpanel'));
+ if(regionBox.width>=clockBox.width+panelBox.width+60)check('宽屏设置与时钟不相互遮挡',panelBox.right<clockBox.left);
+ advanced.open=true;await wait();check('展开装饰选项后面板仍可见可滚动',inside(rect(panel))&&panel.scrollHeight>=panel.clientHeight);advanced.open=false;
+
+ panel.querySelector('.eva-panel-close').click();check('关闭按钮收起面板并恢复仪表焦点',panel.hidden&&document.activeElement===hud);
+}
+api.set('hudScale',1.5);api.set('clockScale',1);api.set('clock',false);await wait();
+const mp=layer.querySelector('.eva-mp'),head=rect(document.querySelector('[data-conversation-header]'));
+check('关闭时钟后音乐仍位于会话头部下方',!visible(mp)||rect(mp).top>=head.bottom+8,JSON.stringify(rect(mp)));
+api.set('clock',true);api.set('music',false);await wait();validate('关闭音乐');api.set('music',true);
+// 模拟展开侧栏、右侧面板与输入框增高，依赖观察器即时重排。
+document.documentElement.style.setProperty('--right',innerWidth>1000?'260px':'0px');
+document.documentElement.style.setProperty('--composer-height',innerHeight>450?'180px':'100px');
+await wait();await wait();validate('侧栏与输入框变化');
+if(innerWidth>1000){
+ const regionRight=rect(document.querySelector('[data-conversation-region]')).right;
+ check('分栏后仪表留在会话区域',rect(layer.querySelector('.eva-corner-stack')).right<=regionRight+1);
+}else check('窄屏维持可用的设置入口',visible(layer.querySelector('.eva-hud')));
+document.documentElement.style.setProperty('--right','0px');document.documentElement.style.setProperty('--composer-height','110px');
+api.set('clockScale',1);await wait();
+const fullPane=document.createElement('div');fullPane.setAttribute('data-sidebar-right-open','');fullPane.setAttribute('data-sidebar-right-panel','fullscreen');document.body.appendChild(fullPane);await wait();
+check('右栏全屏时收起时钟音乐和 TPS',!visible(layer.querySelector('.eva-clockpanel'))&&!visible(mp)&&!visible(layer.querySelector('.eva-tps'))&&!visible(portraitNode));
+check('右栏全屏仍显示当前角色并能打开设置',visible(layer.querySelector('.eva-pilot-name'))&&visible(layer.querySelector('.eva-hud'))&&layer.querySelector('.eva-corner-stack').dataset.fit==='minimal');
+fullPane.remove();await wait();
+// 旧版哈希完全替换后，关键装饰仍生效。
+check('变化后的发送按钮仍使用主题色',getComputedStyle(document.querySelector('.changed_primary')).backgroundColor!=='rgba(0, 0, 0, 0)');
+check('变化后的侧栏钩子仍可识别',!api.diagnose().missing.some(m=>m.what==='左侧边栏面板'));
+// 隐藏状态仍检测系统播放；暂停保留控制，来源消失后收起。
+check('未检测到播放时播放器隐藏',!visible(mp)&&mediaReads>0);
+const refresh=async()=>{api.set('music',false);api.set('music',true);await wait();await wait()};
+external={ok:true,supported:true,source:'system',bundleId:'com.netease.163music',app:'网易云音乐',playing:false,state:'paused',title:'Old paused track',duration:240,position:10};
+await refresh();check('初次检测到暂停曲目不会弹出播放器',!visible(mp));
+external={...external,playing:true,state:'playing',title:'External track',artist:'Artist'};
+await refresh();
+check('检测系统播放后显示真实曲名',layer.querySelector('.eva-mp-title').textContent.includes('External track'));
+check('音源首次载入显示主题连接动画且不拦截按钮',mp.dataset.entering==='1'&&getComputedStyle(mp.querySelector('.eva-mp-loading')).display==='grid'&&getComputedStyle(mp.querySelector('.eva-mp-loading')).pointerEvents==='none'&&!mp.querySelector('[data-act=play]').disabled);
+const connectColor=getComputedStyle(mp.querySelector('.eva-mp-loading')).color;
+document.body.removeAttribute('data-ds-dark-theme');await wait();
+check('连接效果跟随绫波丽主题换色',getComputedStyle(mp.querySelector('.eva-mp-loading')).color!==connectColor);
+document.body.setAttribute('data-ds-dark-theme','');
+await wait();
+check('播放时机械环和状态格动画运行，演出者独立显示',getComputedStyle(mp.querySelector('.eva-mp-ring')).animationPlayState==='running'&&getComputedStyle(mp.querySelector('.eva-mp-eq i')).animationPlayState==='running'&&mp.querySelector('.eva-mp-artist').textContent==='Artist');
+check('进度条向辅助技术提供真实曲目进度',mp.querySelector('.eva-mp-bar').getAttribute('aria-valuenow')==='4'&&mp.querySelector('.eva-mp-bar').getAttribute('aria-valuetext')==='00:10 / 04:00');
+validate('系统音乐播放');
+const clock=layer.querySelector('.eva-clockpanel'),tps=layer.querySelector('.eva-tps'),hud=layer.querySelector('.eva-hud');
+check('TPS 位于中央教条区下方且宽度对齐',!visible(tps)||rect(tps).top>=rect(hud).bottom-1&&Math.abs(rect(tps).width-rect(hud).width)<2);
+check('时钟在右上方与仪表共用右边缘',!visible(clock)||Math.abs(rect(clock).right-rect(layer.querySelector('.eva-corner-stack')).right)<2);
+check('播放器位于时钟下方并对齐右边缘',!visible(mp)||(!visible(clock)||rect(mp).top>=rect(clock).bottom+8)&&Math.abs(rect(mp).right-rect(layer.querySelector('.eva-corner-stack')).right)<2);
+// 空间足够时必须展示播放器，避免只更新隐藏元素。
+check('系统播放器可见且不因输入栏收起',visible(mp));
+const previousClockScale=api.options.clockScale;
+for(const dark of [false,true]){
+ document.body.toggleAttribute('data-ds-dark-theme',dark);
+ for(const scale of [.6,1.5,5]){
+  api.set('clockScale',scale);await wait();
+  const ring=mp.querySelector('.eva-mp-core').getBoundingClientRect(),crest=mp.querySelector('.eva-mp-crest').getBoundingClientRect();
+  check((dark?'明日香':'绫波丽')+'：'+scale+' 倍下 SVG 徽记与机械环同心',Math.abs(crest.left+crest.width/2-ring.left-ring.width/2)<.1&&Math.abs(crest.top+crest.height/2-ring.top-ring.height/2)<.1);
+ }
+}
+api.set('clockScale',previousClockScale);await wait();
+const delayedPause=deferred();commandGate=delayedPause;const beforePauseReads=mediaReads;
+mp.querySelector('[data-act=play]').click();
+check('控制回复前立即切换暂停图标并冻结动画',!mp.hasAttribute('data-playing')&&mp.querySelector('[data-act=play]').getAttribute('aria-label')==='继续播放'&&getComputedStyle(mp.querySelector('.eva-mp-ring')).animationPlayState==='paused');
+check('等待控制时按钮可用且没有等待光标，内部条纹提示处理中',Array.from(mp.querySelectorAll('.eva-mp-btn')).every(b=>!b.disabled&&getComputedStyle(b).cursor==='pointer')&&mp.dataset.command==='playpause'&&getComputedStyle(mp.querySelector('.eva-mp-hazard')).animationName==='mp-command'&&!mp.hasAttribute('data-entering'));
+await wait();check('控制未完成时不重复查询媒体状态',mediaReads===beforePauseReads);
+delayedPause.resolve();await wait();await wait();
+check('暂停发送固定动作并保留继续播放入口',actions.at(-1)?.action==='playpause'&&actions.at(-1)?.bundleId==='com.netease.163music'&&!mp.hasAttribute('data-playing')&&mp.querySelector('[data-act=play]').getAttribute('aria-label')==='继续播放');
+check('暂停时状态切换 HOLD 并冻结机械环和状态格',mp.querySelector('.eva-mp-state-en').textContent==='HOLD'&&mp.querySelector('.eva-mp-playlabel').textContent==='PLAY'&&getComputedStyle(mp.querySelector('.eva-mp-ring')).animationPlayState==='paused'&&getComputedStyle(mp.querySelector('.eva-mp-eq i')).animationPlayState==='paused');
+mp.querySelector('[data-act=next]').click();await wait();await wait();
+check('下一首发送动作并刷新曲名',actions.at(-1)?.action==='next'&&layer.querySelector('.eva-mp-title').textContent.includes('Next track'));
+mp.querySelector('[data-act=prev]').click();await wait();await wait();
+check('上一首发送动作并刷新曲名',actions.at(-1)?.action==='previous'&&layer.querySelector('.eva-mp-title').textContent.includes('Previous track'));
+const rapid=deferred();commandGate=rapid;const beforeRapid=actions.length;
+mp.querySelector('[data-act=play]').click();mp.querySelector('[data-act=play]').click();
+check('连续点击立即反映最终意图，动作按顺序排队',!mp.hasAttribute('data-playing')&&actions.length===beforeRapid+1);
+rapid.resolve();await wait();await wait();
+check('连续动作没有丢失且完成后清除处理中状态',actions.length===beforeRapid+2&&!external.playing&&!mp.hasAttribute('data-command'));
+const stale=deferred(),staleCommand=deferred();readGate=stale;
+api.set('music',false);api.set('music',true);await wait();
+commandGate=staleCommand;mp.querySelector('[data-act=play]').click();
+check('点击控制会取消旧查询，避免阻塞新曲目刷新',mediaSignal.aborted===true);
+stale.resolve();await wait();
+check('点击前的慢查询不会覆盖即时播放状态',mp.dataset.playing==='1');
+staleCommand.resolve();await wait();await wait();
+check('旧查询结束后仍刷新真实播放状态',external.playing&&mp.dataset.playing==='1'&&!mp.hasAttribute('data-command'));
+const failure=deferred();commandGate=failure;commandFailure='SOURCE_CHANGED';
+mp.querySelector('[data-act=play]').click();mp.querySelector('[data-act=next]').click();const failedCount=actions.length;
+failure.resolve();await wait();await wait();
+check('来源改变时回滚预测状态并取消剩余动作',mp.dataset.playing==='1'&&actions.length===failedCount&&!mp.hasAttribute('data-command'));
+readSnapshot={...external};mp.querySelector('[data-act=play]').click();await wait();await wait();
+check('系统已接受暂停但仍返回旧状态时，图标不会闪回',!mp.hasAttribute('data-playing')&&!external.playing);
+const beforeReconcile=mediaReads;
+await new Promise(r=>setTimeout(r,300));
+check('校准重试绕过旧缓存，系统状态追上后正常完成',mediaReads>beforeReconcile&&lastMediaUrl.includes('?refresh=1')&&!mp.hasAttribute('data-playing')&&!mp.hasAttribute('data-command'));
+external={ok:true,supported:true,app:null};await refresh();
+check('来源结束后隐藏播放器并清理载入动画',!visible(mp)&&!mp.hasAttribute('data-playing')&&!mp.hasAttribute('data-entering'));
+// 页面隐藏时不采样、不轮询，恢复时立刻刷新。
+Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));
+check('隐藏页面暂停装饰动画',layer.hasAttribute('data-paused'));
+delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));await wait();
+check('恢复页面重启布局',!layer.hasAttribute('data-paused'));
+// 卸载中止正在等待的网络请求，并使旧 API 失效。
+balancePending=true;layer.querySelector('.eva-tags').click();await wait();
+for(const dispose of effects.reverse())dispose();
+check('卸载取消正在等待的余额请求',pendingSignal?.aborted===true);
+check('卸载清除全局 API 与所有主题缩放变量',!window.__EVA_MAGI_THEME__&&!document.documentElement.style.cssText.includes('--eva-'));
+await wait();check('异步请求完成后不会复活界面',!document.querySelector('.eva-magi-layer'));
+}catch(error){check('没有未捕获异常',false,String(error.stack||error))}
+window.setPreviewMode=async(dark)=>{document.body.toggleAttribute('data-ds-dark-theme',dark);await wait()};
+window.renderPreview=()=>{balancePending=false;external={ok:true,supported:true,app:null};exports.apply(ctx)};
+// 文档图仅使用明确标注的模拟曲目，不依赖或录制用户正在播放的内容。
+window.previewMusic=async(playing,entering=false)=>{
+ const preview=window.__EVA_MAGI_THEME__;
+ if(entering){external={ok:true,supported:true,app:null};preview.set('music',false);preview.set('music',true);await wait();await wait()}
+ external={ok:true,supported:true,source:'system',bundleId:'com.netease.163music',app:'网易云音乐',playing,state:playing?'playing':'paused',title:'残酷な天使のテーゼ',artist:'高橋洋子',album:'NEON GENESIS EVANGELION',duration:245,position:93};
+ preview.set('wallpaper',false);preview.set('clockScale',1);preview.set('music',false);preview.set('music',true);await wait();await wait();
+};
+const failures=results.filter(r=>!r.ok);document.getElementById('RESULT').textContent=JSON.stringify({total:results.length,failed:failures.length,failures,viewport:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio}});
+})();
+</script></body></html>
