@@ -23,7 +23,7 @@ try{
 			if(reducedMode)await command("Emulation.setEmulatedMedia",{features:[{name:"prefers-reduced-motion",value:"reduce"}]});
 			await command("Page.enable");await command("Page.navigate",{url:harness});
 			let report;
-			for(let i=0;i<240;i++){
+			for(let i=0;i<400;i++){
 				const {result,exceptionDetails}=await command("Runtime.evaluate",{expression:"document.getElementById('RESULT')?.textContent",returnByValue:true});
 				if(exceptionDetails)throw new Error(JSON.stringify(exceptionDetails));
 				if(result.value && result.value!=="not-run"){report=JSON.parse(result.value);break;}

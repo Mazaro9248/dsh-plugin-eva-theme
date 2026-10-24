@@ -34,8 +34,8 @@
       "file": "svg/eva-entry-plug.svg",
       "type": "image/svg+xml",
       "inline": true,
-      "bytes": 5141,
-      "sha256": "c9c4a5b091f7e7e4ba249bad15732e9b0a1241df0d2015a85b82032f3fe2ceee"
+      "bytes": 5867,
+      "sha256": "bdd1cb1628b5adb7779f6340cd440e4858996b085eceb89d25ceb5aea4e4a724"
     },
     "asukaPortrait": {
       "file": "images/asuka-portrait-lineart.png",
@@ -120,6 +120,24 @@
       "type": "text/javascript",
       "bytes": 3676,
       "sha256": "f49bfc8ad0a67738d9a4feb872648b51ab21f9dd8179bc5013a96ec831bf2ff9"
+    },
+    "asukaWelcome": {
+      "file": "audio/asuka-voice-welcome.mp3",
+      "type": "audio/mpeg",
+      "bytes": 43535,
+      "sha256": "643309fadbc21b335dd329565bdfda0620b4a782aaf6c3eb8ba565bd1e47163c"
+    },
+    "reiWelcome": {
+      "file": "audio/rei-voice-welcome.mp3",
+      "type": "audio/mpeg",
+      "bytes": 53148,
+      "sha256": "eaa5ce90e76b2ff71f1ccc6a4b66c8b576192154970700648c824fdbcbbeeeed"
+    },
+    "typing": {
+      "file": "audio/nerv-ui-typing.mp3",
+      "type": "audio/mpeg",
+      "bytes": 18015,
+      "sha256": "2d940e2128c8eb7d49b0e98b1039846d714811c08e614957f10a5f32a9a3ab65"
     }
   }
 }

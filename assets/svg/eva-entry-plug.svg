@@ -22,6 +22,7 @@
     <path d="M129 158q71 13 142 0v14q-71 13-142 0z" fill="#333e42"/>
     <path class="eva-plug-band" d="M129 172q71 13 142 0v29q-71 13-142 0z" fill="var(--boot-accent)" stroke="#36444a"/>
     <path d="M129 202q71 13 142 0M129 257q71 12 142 0M129 571q71 12 142 0M143 212v349m112-349v349" opacity=".6"/>
+    <g class="eva-plug-roll eva-plug-roll-front">
     <path d="M148 217h20v27h-20zM232 217h20v27h-20zM154 226h8m76 0h8" stroke="#879492"/>
     <!-- 橙色鼻锥的检修盖、锁孔与通气槽。 -->
     <path d="M167 76q33-13 66 0l4 33q-37 9-74 0z" fill="#f2c47d"/>
@@ -46,12 +47,22 @@
     <path d="M173 462h54m-54 13h54m-54 13h54m-54 13h54m-54 13h54" stroke="#709c94" opacity=".17"/>
     <g fill="#657571" stroke="#dce2d5"><circle cx="160" cy="440" r="2"/><circle cx="240" cy="440" r="2"/><circle cx="160" cy="535" r="2"/><circle cx="240" cy="535" r="2"/></g>
     <path d="M185 552h30m-25 6h20" stroke="#73817b"/>
+    </g>
+    <g class="eva-plug-roll eva-plug-roll-back" stroke="#84918b">
+      <path d="M177 228h46v330h-46zM188 236v310m24-310v310" fill="#e8e9dd"/>
+      <path d="M181 276h38m-38 9h38m-38 9h38m-38 155h38m-38 9h38m-38 9h38"/>
+      <g transform="rotate(90 200 357)" fill="#465450" stroke="none" text-anchor="middle">
+        <text x="200" y="358" class="eva-plug-micro">NERV / SERVICE ACCESS · L.C.L.</text>
+      </g>
+      <path d="M181 506h38v28h-38z" fill="#d5ad4c"/><path d="m188 528 12-17 12 17z" fill="#344247"/>
+      <path d="M188 85h24v55h-24z" fill="#bd894e"/><path d="M193 96h14m-14 8h14m-14 8h14m-14 8h14"/>
+    </g>
     <!-- 与参考模型相同的金色宽环、石墨色护套和橙色三角整流片。 -->
     <g class="eva-plug-collar">
       <path d="M129 583q71 12 142 0v55q-71 12-142 0z" fill="url(#eva-plug-gold)" stroke="#494f41" stroke-width="2"/>
       <path d="M129 582q71 12 142 0m-142 59q71 12 142 0" stroke="#29383d" stroke-width="6"/>
       <path d="M129 646q71 12 142 0v53q-71 12-142 0z" fill="#4a595d" stroke="#304247"/>
-      <path d="M145 654l15 37h-17zM178 657l14 39h-22zM211 658l12 38h-22zM245 654l10 36h-22z" fill="#ee9b41" stroke="#263c42" stroke-width="2"/>
+      <path class="eva-plug-roll eva-plug-roll-front" d="M145 654l15 37h-17zM178 657l14 39h-22zM211 658l12 38h-22zM245 654l10 36h-22z" fill="#ee9b41" stroke="#263c42" stroke-width="2"/>
       <path d="M129 702q71 12 142 0" stroke="#7a8780"/>
     </g>
     <path d="M168 718q32 9 64 0m-53 10q21 5 42 0" stroke="#97a19a"/>

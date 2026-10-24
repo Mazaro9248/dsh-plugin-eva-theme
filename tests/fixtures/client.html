@@ -789,7 +789,9 @@ window.__ModuleLoader__ = {
     await new Promise(resolve => setTimeout(resolve, 400));
     check("3.84 秒开场结束进入 NERV 警报并移除 GIF 来源", fullBoot.isConnected && fullBoot.dataset.phase==='emergency' && !fullImage.hasAttribute('src') && !!fullBoot.querySelector('.eva-emergency svg'));
     await new Promise(resolve => setTimeout(resolve, 3050));
-    check("三秒警报后进入驾驶员选择并回收警报图案", fullBoot.isConnected && fullBoot.dataset.phase==='select' && !fullBoot.querySelector('.eva-emergency') && fullBoot.querySelectorAll('.eva-pilot-card').length===2);
+    check("三秒警报后进入黑底打字引导并回收警报图案", fullBoot.isConnected && fullBoot.dataset.phase==='intro' && !fullBoot.querySelector('.eva-emergency') && !!fullBoot.querySelector('.eva-intro-title'));
+    fullBoot.querySelector('.eva-intro-next').click();
+    check("跳过打字即可操作驾驶员选择",fullBoot.dataset.phase==='select'&&fullBoot.querySelectorAll('.eva-pilot-card').length===2&&!fullBoot.querySelector('.eva-boot-intro'));
     fullBoot.querySelector('.eva-boot-exit').click();
     check("跳过选择会释放焦点与宿主 inert 状态", !fullBoot.isConnected && !document.querySelector('.eva-magi-layer').inert);
     replay.click();

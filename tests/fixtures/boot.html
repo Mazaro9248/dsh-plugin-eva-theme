@@ -20,6 +20,7 @@ const effects=[],themeWrites=[],mediaStates=new WeakMap(),realCreate=document.cr
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const BrowserWorker=window.Worker,liveWorkers=new Set();
 if(BrowserWorker)window.Worker=class extends BrowserWorker{constructor(...args){super(...args);liveWorkers.add(this)}terminate(){liveWorkers.delete(this);return super.terminate()}};
+let typingCalls=0,welcomeCalls=0;
 let failPlay=false,playCalls=0,failBgm=false,bgmPlayCalls=0,pickCalls=0,holdPick=false,failPick=false;
 const createMediaMock=function(tag,...args){
  const node=realCreate.call(this,tag,...args);
@@ -27,7 +28,7 @@ const createMediaMock=function(tag,...args){
   const state={duration:NaN,currentTime:0,paused:true,ended:false,loads:0};mediaStates.set(node,state);
   for(const key of ['duration','currentTime','paused','ended'])Object.defineProperty(node,key,{configurable:true,get:()=>state[key],...(key==='currentTime'?{set:value=>state[key]=value}:{})});
   node.load=()=>{state.loads++;clearTimeout(state.timer);state.currentTime=0;state.ended=false;state.duration=node.hasAttribute('src')?(node.className==='eva-boot-bgm'?234.814694:node.className==='eva-boot-pick-voice'?1.5:document.querySelector('.eva-boot')?.dataset.pilot==='rei'?5:8):NaN;queueMicrotask(()=>node.dispatchEvent(new Event('loadedmetadata')))};
-  node.play=()=>{if(node.className==='eva-boot-bgm'){bgmPlayCalls++;if(failBgm){failBgm=false;return Promise.reject(new DOMException('Test music gesture required','NotAllowedError'))}}else if(node.className==='eva-boot-pick-voice'){pickCalls++;if(failPick){failPick=false;return Promise.reject(new DOMException('Test response gesture required','NotAllowedError'))}if(!holdPick)state.timer=setTimeout(()=>{if(!state.paused){state.ended=true;node.dispatchEvent(new Event('ended'))}},5)}else{playCalls++;if(failPlay){failPlay=false;return Promise.reject(new DOMException('Test gesture required','NotAllowedError'))}}state.paused=false;node.dispatchEvent(new Event('playing'));return Promise.resolve()};
+  node.play=()=>{if(node.className==='eva-intro-typing'){typingCalls++;state.timer=setTimeout(()=>{state.ended=true;node.dispatchEvent(new Event('ended'))},1050)}else if(node.className==='eva-welcome-voice'){welcomeCalls++}else if(node.className==='eva-boot-bgm'){bgmPlayCalls++;if(failBgm){failBgm=false;return Promise.reject(new DOMException('Test music gesture required','NotAllowedError'))}}else if(node.className==='eva-boot-pick-voice'){pickCalls++;if(failPick){failPick=false;return Promise.reject(new DOMException('Test response gesture required','NotAllowedError'))}if(!holdPick)state.timer=setTimeout(()=>{if(!state.paused){state.ended=true;node.dispatchEvent(new Event('ended'))}},5)}else{playCalls++;if(failPlay){failPlay=false;return Promise.reject(new DOMException('Test gesture required','NotAllowedError'))}}state.paused=false;node.dispatchEvent(new Event('playing'));return Promise.resolve()};
   node.pause=()=>{clearTimeout(state.timer);if(!state.paused){state.paused=true;node.dispatchEvent(new Event('pause'))}};
  }
  return node;
@@ -40,7 +41,8 @@ const ctx={effect(fn){const d=fn();effects.push(d);return d},inject(){},theme:{
 }};
 const exports=window.definition.factory(()=>{});
 const start=()=>{document.querySelector('.eva-replay-boot').click();const boot=document.querySelector('.eva-boot');if(boot.dataset.phase==='gif')boot.querySelector('img').dispatchEvent(new Event('error'));return boot};
-const open=()=>{const boot=start();boot.querySelector('.eva-emergency-next')?.click();return boot};
+const open=()=>{const boot=start();boot.querySelector('.eva-emergency-next')?.click();boot.querySelector('.eva-intro-next')?.click();return boot};
+const until=async(predicate)=>{for(let i=0;i<100;i++){if(predicate())return;await wait(40)}throw new Error('启动阶段未按时完成')};
 const pointer=(card,type,x,y,id=7)=>card.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:id,pointerType:'mouse',button:0,clientX:x,clientY:y}));
 const drag=(card,x,y)=>{const r=card.getBoundingClientRect();pointer(card,'pointerdown',r.left+r.width/2,r.top+r.height/2);pointer(card,'pointermove',x,y);pointer(card,'pointerup',x,y)};
 const inViewport=node=>{const r=node.getBoundingClientRect();return r.left>=-1&&r.top>=-1&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1&&r.width>0&&r.height>0};
@@ -66,16 +68,34 @@ try{
   check('警报使用渐变明暗且结尾淡至黑色',frames.some(frame=>Number(frame.opacity)>.9)&&frames.some(frame=>Number(frame.opacity)>.2&&Number(frame.opacity)<.5)&&frames.at(-1).opacity==='0');
   await wait(1600);check('警报仍在播放，未提前显示选择界面',alertBoot.dataset.phase==='emergency'&&sequence.currentTime>1200);
   await wait(1500);
-  check('警报约三秒后进入驾驶员选择并回收图案',alertBoot.dataset.phase==='select'&&!alert.isConnected&&!alertBoot.querySelector('.eva-emergency-next')&&performance.now()-began>=3000);
+  check('警报约三秒后进入黑底打字引导并回收图案',alertBoot.dataset.phase==='intro'&&!alert.isConnected&&!alertBoot.querySelector('.eva-emergency-next')&&performance.now()-began>=3000);
+  const intro=alertBoot.querySelector('.eva-boot-intro'),typed=intro.querySelector('.eva-intro-typed'),introTitle=intro.querySelector('h1'),titleLeft=introTitle.getBoundingClientRect().left;
+  check('引导使用与GIF相同的近黑纯底且隔离宿主',getComputedStyle(intro).backgroundColor==='rgb(0, 1, 1)'&&fullViewport(intro)&&document.querySelector('[data-composer-card]').inert&&!alertBoot.querySelector('.eva-pilot-card'));
+  check('引导只点缀两位驾驶员本地线稿与编号',[...intro.querySelectorAll('.eva-intro-face')].every(face=>getComputedStyle(face).maskImage.includes('/dsh-eva-magi/assets/images/'))&&intro.querySelector('[data-pilot=asuka] b').textContent==='02'&&intro.querySelector('[data-pilot=rei] b').textContent==='00');
+  check('完整标题有可访问名称且操作按钮可见',introTitle.getAttribute('aria-label')==='选择你的驾驶员'&&inViewport(introTitle)&&inViewport(intro.querySelector('button')));
+  await wait(550);check('打字音效随首字播放且保持背景音乐音量',typingCalls===1&&alertBoot.querySelector('.eva-intro-typing')?.src.includes('nerv-ui-typing.mp3')&&Math.abs(music.volume-.28)<.01);check('标题逐字出现并保持文字起点稳定',typed.textContent.length>0&&typed.textContent.length<7&&Math.abs(introTitle.getBoundingClientRect().left-titleLeft)<1,typed.textContent);
+  await wait(900);check('打字结束音效回收且未降背景音乐',!alertBoot.querySelector('.eva-intro-typing')&&Math.abs(music.volume-.28)<.01);check('打字结束保留完整标题阅读停留',alertBoot.dataset.phase==='intro'&&typed.textContent==='选择你的驾驶员');
+  await until(()=>alertBoot.hasAttribute('data-arriving'));
+  check('标题归位期间保持输入隔离与专用飞行文字',alertBoot.dataset.phase==='select'&&alertBoot.querySelector('.eva-boot-console').inert&&document.activeElement===alertBoot&&alertBoot.querySelector('.eva-intro-flight')?.textContent==='选择你的驾驶员');
+  await until(()=>!alertBoot.hasAttribute('data-arriving'));
+  check('归位完成回收引导并释放选择操作',!intro.isConnected&&!alertBoot.querySelector('.eva-intro-flight')&&!alertBoot.querySelector('.eva-boot-console').inert&&document.activeElement===alertBoot.querySelector('.eva-pilot-card'));
   check('警报衔接选择时背景音乐沿用同一音轨和位置',alertBoot.querySelector('.eva-boot-bgm')===music&&music.src===source&&!music.paused&&music.currentTime===12&&bgmPlayCalls===plays);
   alertBoot.querySelector('.eva-boot-exit').click();
   const skipped=start();skipped.querySelector('.eva-emergency-next').click();
-  check('可跳过警报直接选择驾驶员',skipped.dataset.phase==='select'&&!skipped.querySelector('.eva-emergency'));skipped.querySelector('.eva-boot-exit').click();
+  check('跳过警报仍先呈现打字引导',skipped.dataset.phase==='intro'&&!skipped.querySelector('.eva-emergency'));
+  skipped.querySelector('.eva-intro-next').click();check('可跳过打字直接选择驾驶员',skipped.dataset.phase==='select'&&!skipped.querySelector('.eva-boot-intro'));skipped.querySelector('.eva-boot-exit').click();
   const cancelled=start(),cancelMusic=cancelled.querySelector('.eva-boot-bgm');document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
   check('Escape 取消警报且释放宿主和音乐',!cancelled.isConnected&&!cancelMusic.hasAttribute('src')&&!document.querySelector('[data-composer-card]').inert);
   const hidden=start();Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));
   check('警报切到后台直接保留静态选择并暂停音乐',hidden.dataset.phase==='select'&&!hidden.querySelector('.eva-emergency')&&hidden.querySelector('.eva-boot-bgm').paused);
   delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));hidden.querySelector('.eva-boot-exit').click();
+  const hiddenIntro=start();hiddenIntro.querySelector('.eva-emergency-next').click();
+  Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));
+  check('打字时切后台取消计时并保留静态选择',hiddenIntro.dataset.phase==='select'&&!hiddenIntro.querySelector('.eva-boot-intro,.eva-intro-flight')&&!hiddenIntro.querySelector('.eva-boot-console').inert&&hiddenIntro.querySelector('.eva-boot-bgm').paused);
+  delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));hiddenIntro.querySelector('.eva-boot-exit').click();
+  const cancelledIntro=start();cancelledIntro.querySelector('.eva-emergency-next').click();const stoppedText=cancelledIntro.querySelector('.eva-intro-typed');
+  document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));const stopped=stoppedText.textContent;await wait(300);
+  check('Escape取消引导且不继续打字或复活界面',!cancelledIntro.isConnected&&stoppedText.textContent===stopped&&!document.querySelector('.eva-boot')&&!document.querySelector('[data-composer-card]').inert);
  }
  let boot=open(),cards=[...boot.querySelectorAll('.eva-pilot-card')],bay=boot.querySelector('.eva-entry-bay');
  const reiBgm=boot.querySelector('.eva-boot-bgm'),bgmSource=reiBgm.src;
@@ -88,6 +108,9 @@ try{
  check('全屏布局无需滚动且关键控件完整可见',boot.scrollHeight<=boot.clientHeight+1&&[...cards,bay,boot.querySelector('.eva-boot-exit'),boot.querySelector('.eva-boot-footer')].every(inViewport));
  check('驾驶员名称未被卡片裁切',cards.every(card=>{const a=card.getBoundingClientRect(),b=card.querySelector('.eva-pilot-info').getBoundingClientRect();return b.top>=a.top&&b.bottom<=a.bottom&&b.right<=a.right}));
  check('警报结束后显示左插入栓、右侧上下驾驶员',boot.dataset.phase==='select'&&cards.length===2&&bay.getBoundingClientRect().right<=cards[0].getBoundingClientRect().left&&cards[0].getBoundingClientRect().bottom<cards[1].getBoundingClientRect().top);
+ const roller=boot.querySelector('.eva-plug-roll-front'),rollAnimation=roller.getAnimations()[0];
+ check('插入栓保留倾角且表面绕长轴旋转',reduced?!rollAnimation:rollAnimation?.animationName==='eva-plug-roll');
+ if(!reduced){const shellBefore=boot.querySelector('rect[rx="71"]').getScreenCTM();rollAnimation.pause();rollAnimation.currentTime=1250;const roll=getComputedStyle(roller).transform,shellAfter=boot.querySelector('rect[rx="71"]').getScreenCTM();check('旋转改变表面透视而筒体宽度倾角不变',roll!=='none'&&shellBefore.a===shellAfter.a&&shellBefore.b===shellAfter.b);rollAnimation.play()}
  check('两位闭眼头像使用不同的本地透明蒙版',getComputedStyle(cards[0].querySelector('.eva-pilot-face')).maskImage.includes('/dsh-eva-magi/assets/images/')&&getComputedStyle(cards[0].querySelector('.eva-pilot-face')).maskImage!==getComputedStyle(cards[1].querySelector('.eva-pilot-face')).maskImage);
  check('驾驶员选择与中央教条区共用中文名字体',cards.every(card=>getComputedStyle(card.querySelector('.eva-pilot-info b')).fontFamily===getComputedStyle(document.querySelector('.eva-pilot-name')).fontFamily));
  const bootTitle=boot.querySelector('.eva-boot-title'),titleStyle=getComputedStyle(bootTitle),heading=boot.querySelector('.eva-boot-heading');
@@ -162,6 +185,7 @@ try{
  check('仅语音结束后才打开双侧舱门',reduced?!boot.isConnected:boot.dataset.phase==='handoff'&&boot.querySelectorAll('.eva-boot-gate').length===2&&boot.querySelector('[role=progressbar]').getAttribute('aria-valuenow')==='100',JSON.stringify({connected:boot.isConnected,phase:boot.dataset.phase,value:boot.querySelector('[role=progressbar]').getAttribute('aria-valuenow')}));
  if(!reduced){
   const chatBefore=document.querySelector('[data-conversation-region=chat]').getBoundingClientRect();
+  check('交接已彻底移除烟雾节点与动画',!boot.querySelector('.eva-boot-vent')&&!boot.getAnimations({subtree:true}).some(a=>a.animationName?.includes('vent')));
   check('过渡全程维持模态隔离，结束后再释放宿主',boot.getAttribute('aria-modal')==='true'&&document.querySelector('[data-composer-card]').inert&&document.activeElement===boot);
   check('舱门后方真实角色背景已就位，避免结束时突然跳出',getComputedStyle(document.querySelector('.eva-magi-layer')).visibility==='visible');
   await wait(800);
@@ -174,6 +198,10 @@ try{
  }
  check('衔接完成释放覆盖层、音频并聚焦聊天输入',!boot.isConnected&&!reiAudio.hasAttribute('src')&&document.activeElement===document.querySelector('[data-composer-input]')&&!document.querySelector('[data-composer-card]').inert,JSON.stringify({connected:boot.isConnected,src:reiAudio.hasAttribute('src'),active:document.activeElement?.outerHTML.slice(0,120),inert:document.querySelector('[data-composer-card]').inert}));
  check('进入聊天后背景音乐停止并释放原始文件',reiBgm.paused&&!reiBgm.hasAttribute('src'));
+ const welcome=document.querySelector('.eva-welcome-voice'),welcomeSource=welcome?.src;
+ check('绫波丽欢迎语音仅在舱门结束且输入已恢复后播放',welcomeCalls===1&&welcomeSource?.includes('rei-voice-welcome.mp3')&&!welcome.paused&&!document.querySelector('[data-composer-card]').inert);
+ welcome.dispatchEvent(new Event('ended'));check('欢迎语音结束回收音源和节点',!welcome.isConnected&&!welcome.hasAttribute('src'));
+ check('欢迎语音真实解码且时长约3秒',await decode(welcomeSource)>2);
  check('清理保留宿主原有 inert 状态',document.querySelector('#pre-inert').inert);
  const reiDuration=await decode(reiSource);check('用户提供的绫波丽 MP3 可真实解码且约 6.6 秒',reiDuration>6&&reiDuration<7,String(reiDuration));
  const bgmDuration=await decode(bgmSource);check('原版 EM20 MP3 可真实解码且约 3 分 55 秒',bgmDuration>234&&bgmDuration<236,String(bgmDuration));
@@ -237,6 +265,10 @@ try{
   const previousWorker=window.Worker;window.Worker=undefined;boot=open();const fallback=boot.querySelector('.eva-boot-contours path'),beforeFallback=fallback.getAttribute('d');
   check('不支持 Worker 时保持原有矢量动画回退',boot.querySelector('.eva-boot-contours').dataset.renderer==='main');await wait(140);check('主线程回退仍产生同样的动态等高线',fallback.getAttribute('d')!==beforeFallback);boot.querySelector('.eva-boot-exit').click();window.Worker=previousWorker;
  }
+ boot=open();boot.querySelector('[data-pilot=asuka]').click();await wait(20);const completedVoice=boot.querySelector('.eva-boot-voice');mediaStates.get(completedVoice).ended=true;completedVoice.dispatchEvent(new Event('ended'));await wait(reduced?20:1650);
+ const asukaWelcome=document.querySelector('.eva-welcome-voice');check('明日香正常完成后使用独立欢迎音频',asukaWelcome?.src.includes('asuka-voice-welcome.mp3')&&!asukaWelcome.paused);
+ check('明日香欢迎语音真实解码有效',await decode(asukaWelcome.src)>2);
+ boot=open();check('重播立即停止并回收上一次欢迎语音',!asukaWelcome.isConnected&&asukaWelcome.paused&&!asukaWelcome.hasAttribute('src'));boot.querySelector('.eva-boot-exit').click();check('跳过启动不播放欢迎语音',!document.querySelector('.eva-welcome-voice'));
  boot=open();boot.querySelector('[data-pilot=asuka]').click();await wait();const disposedAudio=boot.querySelector('audio'),disposedBgm=boot.querySelector('.eva-boot-bgm'),disposedContour=boot.querySelector('.eva-boot-contours path'),finalContour=disposedContour.getAttribute('d');
  for(const dispose of effects.reverse())dispose();
  check('卸载取消正在播放的语音并恢复宿主交互',!boot.isConnected&&disposedAudio.paused&&!disposedAudio.hasAttribute('src')&&!document.querySelector('[data-composer-card]').inert);
@@ -269,6 +301,13 @@ window.previewEmergency=async(position=1350)=>{
  await window.previewPilot(null);const boot=start();
  for(const animation of boot.getAnimations({subtree:true})){animation.pause();animation.currentTime=position}
  return boot.dataset.phase;
+};
+window.previewIntro=async(position=1400)=>{
+ await window.previewPilot(null);const boot=start();boot.querySelector('.eva-emergency-next')?.click();await wait(position);return boot.dataset.phase;
+};
+window.previewIntroReveal=async(position=400)=>{
+ await window.previewIntro(2250);const boot=document.querySelector('.eva-boot');await until(()=>boot.hasAttribute('data-arriving'));
+ for(const animation of boot.getAnimations({subtree:true})){animation.pause();animation.currentTime=position}return boot.dataset.phase;
 };
 window.previewHandoff=async(id,position=800)=>{
  await window.previewPilot(id);const boot=document.querySelector('.eva-boot'),audio=boot.querySelector('audio');
