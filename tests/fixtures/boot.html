@@ -1,15 +1,20 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="zh-CN" data-platform="darwin"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EVA pilot boot regression</title><style>
 *{box-sizing:border-box}body{margin:0;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font:14px sans-serif}
 [data-conversation-header]{height:48px;padding:16px 24px}[data-conversation-region=chat]{position:fixed;inset:48px 0 0;padding:40px}
 [data-composer-card]{position:fixed;bottom:20px;left:15%;right:15%;height:100px;background:var(--dsw-alias-bg-layer-1);padding:20px}
 [data-composer-input]{outline:none}#RESULT{display:none}
+/* Match the desktop host's drag exclusions, including its body portal safeguard. */
+html[data-platform=darwin] [data-window-drag]{-webkit-app-region:drag}
+html[data-platform=darwin] body>:not(#root){-webkit-app-region:no-drag}
+html[data-platform=darwin] :is(button,a,input,select,textarea,summary,[contenteditable=true],[tabindex],[role=dialog],[role=button]){-webkit-app-region:no-drag}
 </style></head><body data-ds-dark-theme>
-<header data-conversation-header>DSH / EVA — 启动流程测试台</header>
+<div id="root">
+<header data-conversation-header data-window-drag>DSH / EVA — 启动流程测试台</header>
 <main data-conversation-region="chat"><h1>驾驶员已载入</h1><p>启动流程完成后，此处为聊天内容。</p></main>
 <div data-composer-card><div data-composer-input contenteditable="true">输入消息…</div></div>
-<aside id="pre-inert" inert>原本不可交互的宿主内容</aside><pre id="RESULT">not-run</pre>
+<aside id="pre-inert" inert>原本不可交互的宿主内容</aside></div><pre id="RESULT">not-run</pre>
 <script>window.__ModuleLoader__={load(definition){window.definition=definition}};</script><script src="../../lib/client.js"></script>
 <script>
 (async()=>{
@@ -98,6 +103,9 @@ try{
   check('Escape取消引导且不继续打字或复活界面',!cancelledIntro.isConnected&&stoppedText.textContent===stopped&&!document.querySelector('.eva-boot')&&!document.querySelector('[data-composer-card]').inert);
  }
  let boot=open(),cards=[...boot.querySelectorAll('.eva-pilot-card')],bay=boot.querySelector('.eva-entry-bay');
+ check('全屏装饰与启动层位于宿主 root 内，不减掉整窗拖动区',boot.parentElement.id==='root'&&document.querySelector('.eva-magi-layer').parentElement.id==='root'&&getComputedStyle(document.querySelector('.eva-magi-layer')).webkitAppRegion==='none');
+ check('macOS 启动背景可拖动窗口，头像至插入栓整条路径保留指针事件',getComputedStyle(boot).webkitAppRegion==='drag'&&[...cards,bay,boot.querySelector('.eva-boot-grid'),boot.querySelector('.eva-boot-exit'),boot.querySelector('.eva-boot-sound')].every(node=>getComputedStyle(node).webkitAppRegion==='no-drag'));
+ check('启动层和 root 不会被自身的模态隔离锁住',!boot.closest('[inert]')&&!document.querySelector('#root').inert);
  const reiBgm=boot.querySelector('.eva-boot-bgm'),bgmSource=reiBgm.src;
  await wait(480);
  check('驾驶员选择期间循环播放独立背景 MP3',!reiBgm.paused&&reiBgm.loop&&bgmSource.includes('/dsh-eva-magi/assets/audio/')&&Math.abs(reiBgm.volume-.28)<.01);

@@ -529,14 +529,16 @@ window.__ModuleLoader__ = {
     })());
     check("输入框与菜单通过角色变量同步配色", boxRules.some(r => r.cssText.includes('var(--eva-control)')));
     check("菜单规则带 [data-menu-material] —— 否则被更靠后的同特异性弹层规则盖掉", (() => {
-      // 只取直接的属性选择器形式；:is([role=menu],…) 那条弹层规则里的子串也会命中
-      // [role="menu"]，所以必须显式排除 :is(
+      // Only menu color rules need the material selector's specificity.
+      // Grouped app-region declarations protect interactions, not menu appearance.
       const menuRules = boxRules.filter((r) =>
-        r.selectorText.includes('[role="menu"]') && !r.selectorText.includes(":is("));
+        r.selectorText.includes('[role="menu"]') && !r.selectorText.includes(":is(") &&
+        (r.style.color || r.style.background || r.style.backgroundColor));
       return menuRules.length >= 3 && menuRules.every((r) => r.selectorText.includes("data-menu-material"));
     })(), (() => {
       const menuRules = boxRules.filter((r) =>
-        r.selectorText.includes('[role="menu"]') && !r.selectorText.includes(":is("));
+        r.selectorText.includes('[role="menu"]') && !r.selectorText.includes(":is(") &&
+        (r.style.color || r.style.background || r.style.backgroundColor));
       return menuRules.map((r) => (r.selectorText.includes("data-menu-material") ? "✓" : "✗") + r.selectorText.slice(0, 40)).join(" | ");
     })());
 

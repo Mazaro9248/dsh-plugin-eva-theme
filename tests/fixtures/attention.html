@@ -1,5 +1,5 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>EVA role attention regression</title></head>
-<body><pre id="RESULT">not-run</pre>
+<body><div id="root"></div><pre id="RESULT">not-run</pre>
 <script>window.__ModuleLoader__={load(definition){window.definition=definition}};</script><script src="../../lib/client.js"></script>
 <script>
 (async()=>{
@@ -79,12 +79,18 @@ try{
  document.querySelector('[data-attention-preview="approval"]').click();await wait();check('审核试听使用当前主题语音且显示真实播放状态',last()==='asuka-approval'&&document.querySelector('[data-attention-preview="approval"]').getAttribute('aria-pressed')==='true');
  document.body.removeAttribute('data-ds-dark-theme');document.querySelector('[data-attention-preview="complete"]').click();check('切换试听直接替换上一段并使用绫波丽完成语音',last()==='rei-complete');end();
  document.querySelector('[data-attention-preview="complete"]').click();await wait();const stoppedPreview=plays.length;document.querySelector('[data-attention-preview="complete"]').click();check('再次点击试听可停止，不重新开始语音',plays.length===stoppedPreview&&!sound.hasAttribute('src')&&document.querySelector('[data-attention-preview="complete"]').getAttribute('aria-pressed')==='false');
- const boot=document.createElement('div');boot.className='eva-boot';document.body.appendChild(boot);await wait();const beforeBoot=plays.length;
+ const boot=document.createElement('div');boot.className='eva-boot';document.getElementById('root').appendChild(boot);await wait();const beforeBoot=plays.length;
  a.publish('append',[entry(19)]);ask('boot approval');check('启动语音期间审核与完成提醒暂缓，避免叠音',plays.length===beforeBoot);
  status.set(new Map());boot.remove();await wait();check('进入聊天后只播放仍有效的完成提醒',plays.length===beforeBoot+1&&last()==='rei-complete');end();
- a.publish('append',[entry(20)]);const boot2=document.createElement('div');boot2.className='eva-boot';document.body.appendChild(boot2);await wait();
+ a.publish('append',[entry(20)]);const boot2=document.createElement('div');boot2.className='eva-boot';document.getElementById('root').appendChild(boot2);await wait();
  check('重播启动时暂停正在播放的提醒',sound.dataset.paused==='true');boot2.remove();await wait();end();
- ask('hold');a.publish('append',[entry(21)]);a.publish('replace',[entry(21)]);status.set(new Map());const replaced=plays.length;end();
+ const oldRoot=document.getElementById('root'),newRoot=document.createElement('div');newRoot.id='root';newRoot.append(...oldRoot.childNodes);oldRoot.replaceWith(newRoot);await wait();
+ const replacedBoot=document.createElement('div');replacedBoot.className='eva-boot';newRoot.appendChild(replacedBoot);await wait();const beforeReplacement=plays.length;
+ a.publish('append',[entry(21)]);check('宿主替换 root 后仍暂缓启动期间的提醒',plays.length===beforeReplacement);
+ const welcome=document.createElement('audio');welcome.className='eva-welcome-voice';welcome.hidden=true;document.body.appendChild(welcome);replacedBoot.remove();await wait();
+ check('启动层移除后等待 body 下的欢迎语音结束',plays.length===beforeReplacement);welcome.remove();await wait();
+ check('欢迎结束后恢复 root 内启动期间排队的提醒',plays.length===beforeReplacement+1&&last()==='rei-complete');end();
+ ask('hold');a.publish('append',[entry(22)]);a.publish('replace',[entry(22)]);status.set(new Map());const replaced=plays.length;end();
  check('事件流替换后丢弃旧代际排队提醒',plays.length===replaced);
  list.set({byId:{a:{origin:'user'},child:{origin:'subagent'}}});check('会话移除时释放事件订阅',b.listeners.size===0);
  const generationSource=source([entry(30)]);bindings.set('a',{eventSource:generationSource,session:{getSnapshot:()=>({subagent:null})}});list.set({...list.value});

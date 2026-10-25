@@ -13,7 +13,7 @@ npm run release
 也可单独检查已有安装包：
 
 ```sh
-node tests/verify-package.mjs dist/dsh-plugin-eva-theme-0.51.0.tgz
+node tests/verify-package.mjs dist/dsh-plugin-eva-theme-0.51.1.tgz
 ```
 
 ## 上传仓库与 Release
@@ -28,5 +28,7 @@ node tests/verify-package.mjs dist/dsh-plugin-eva-theme-0.51.0.tgz
 ## 验收范围
 
 自动化检查包含两种主题的令牌与对比度、音频实际解码和完整播放、拖放与键盘操作、取消与资源回收、提示音去重、宿主路由、静态资源缓存／分段读取、多视口／缩放和减少动态效果。布局测试使用隔离浏览器与模拟宿主会话。
+
+macOS 拖动验证须区分 CSS 计算值与真实原生窗口移动：在目标 Electron 宿主拖动主界面标题栏及启动空白处，并将头像跨网格拖入插入栓；控件点击与音频队列也应验收。隔离浏览器测试覆盖样式和 Web 交互，不能替代原生窗口位移验收。
 
 发布前仍应在 DSH Desktop 核对两种主题、驾驶员选择、装载语音、聊天交接、设置、音乐控制与远程控制关闭；不要用真实会话发起收费任务来测试提示音。已知平台范围与安装方法见 [README](../README.md)，素材与许可见 [NOTICE](../NOTICE.md)。

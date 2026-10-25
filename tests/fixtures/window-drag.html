@@ -1,0 +1,66 @@
+<!doctype html><html lang="zh-CN" data-platform="darwin"><head><meta charset="utf-8">
+<title>EVA desktop window drag regression</title><style>
+*{box-sizing:border-box}body{margin:0}#root,#fallback-app{min-height:100vh}header{height:56px}
+[data-composer-card]{position:fixed;bottom:24px;left:200px;right:200px;height:90px}#RESULT{display:none}
+/* DSH web frontend 0.2.1-rc.2: keep the body portal rule that exposed this bug. */
+html[data-platform=darwin] [data-window-drag]{-webkit-app-region:drag}
+html[data-platform=darwin] [data-window-drag-recall]{-webkit-app-region:no-drag}
+html[data-platform=darwin] body>:not(#root){-webkit-app-region:no-drag}
+html[data-platform=darwin] :is(button,a,input,select,textarea,summary,[contenteditable=true],[tabindex],[role=dialog],[role=alertdialog],[role=menu],[role=listbox],[role=tooltip],[role=button],[role=link],[role=tab],[role=menuitem],[role=menuitemcheckbox],[role=menuitemradio],[role=option],[role=checkbox],[role=radio],[role=switch],[role=slider],[role=combobox],[role=textbox]){-webkit-app-region:no-drag}
+</style></head><body><pre id="RESULT">not-run</pre>
+<script>window.__ModuleLoader__={load(definition){window.definition=definition}};</script><script src="../../lib/client.js"></script><script>
+(async()=>{
+const results=[],check=(name,ok,detail='')=>results.push({name,ok:!!ok,detail}),wait=()=>new Promise(r=>setTimeout(r,20));
+const region=node=>getComputedStyle(node).getPropertyValue('-webkit-app-region'),realCreate=document.createElement;
+window.addEventListener('error',e=>check('无异步异常',false,e.message));
+window.fetch=async()=>({ok:true,json:async()=>({ok:true,supported:false,app:null})});
+document.createElement=function(tag,...args){const node=realCreate.call(this,tag,...args);if(tag==='audio'){let paused=true;Object.defineProperties(node,{paused:{get:()=>paused},duration:{get:()=>8},currentTime:{get:()=>0},ended:{get:()=>false}});node.play=()=>{paused=false;return Promise.resolve()};node.pause=()=>{paused=true};node.load=()=>{}}return node};
+const exported=definition.factory(()=>{});
+try{
+for(const withRoot of [true,false]){
+ localStorage.clear();sessionStorage.setItem('dsh-eva-magi-theme:booted','1');document.documentElement.dataset.platform=withRoot?'darwin':'linux';
+ const host=realCreate.call(document,'div');host.id=withRoot?'root':'fallback-app';host.innerHTML='<div id="app"><header data-window-drag>Host header</header><main data-conversation-region="chat">Chat</main><div data-composer-card><div data-composer-input contenteditable="true">Message</div></div><aside id="pre-inert" inert>Preserved</aside></div>';
+ document.body.prepend(host);const app=host.querySelector('#app'),outside=realCreate.call(document,'button');outside.textContent='Host portal';document.body.appendChild(outside);
+ const effects=[],ctx={effect(fn){const stop=fn();effects.push(stop);return stop},inject(){},theme:{overrideTokens(){return()=>{}},setTheme(id){document.body.toggleAttribute('data-ds-dark-theme',id==='dark')}}};
+ exported.apply(ctx);const api=__EVA_MAGI_THEME__;api.set('boot',false);const layer=document.querySelector('.eva-magi-layer');
+ check((withRoot?'root':'无 root 回退')+'：装饰层位于预期容器',layer.parentElement===(withRoot?host:document.body));
+ if(withRoot){
+  check('macOS 装饰层不再形成全屏 no-drag 矩形',region(layer)==='none'&&region(app.querySelector('header'))==='drag'&&getComputedStyle(layer).pointerEvents==='none');
+  const r=layer.getBoundingClientRect();check('移动挂载点保持全屏布局',r.x===0&&r.y===0&&r.width===innerWidth&&r.height===innerHeight);
+ }
+ document.querySelector('.eva-replay-boot').click();const boot=document.querySelector('.eva-boot');
+ check('启动层使用同一挂载容器',boot.parentElement===(withRoot?host:document.body));
+ if(withRoot)check('GIF 阶段保留窗口拖动',region(boot)==='drag');
+ boot.querySelector('img').dispatchEvent(new Event('error'));
+ check('警报阶段只隔离宿主内容，不锁住启动层及其祖先',!!app.closest('[inert]')&&outside.inert&&!boot.closest('[inert]')&&(!withRoot||!host.inert)&&document.activeElement===boot.querySelector('.eva-emergency-next'));
+ if(withRoot)check('警报阶段保留窗口拖动与跳过点击',region(boot)==='drag'&&region(boot.querySelector('.eva-emergency-next'))==='no-drag');
+ boot.querySelector('.eva-emergency-next').click();
+ check('黑底引导可跳过且不处于 inert 祖先内',boot.dataset.phase==='intro'&&!boot.closest('[inert]')&&document.activeElement===boot.querySelector('.eva-intro-next'));
+ if(withRoot)check('打字引导的背景可拖动、操作按钮可点击',region(boot)==='drag'&&region(boot.querySelector('.eva-intro-next'))==='no-drag');
+ boot.querySelector('.eva-intro-next').click();
+ check('选择页维持输入隔离且驾驶员卡可聚焦',boot.dataset.phase==='select'&&!!app.closest('[inert]')&&!boot.closest('[inert]')&&document.activeElement===boot.querySelector('.eva-pilot-card'));
+ if(withRoot){
+  check('拖放整条路径不被原生窗口拖动截获',[...boot.querySelectorAll('.eva-boot-grid,.eva-entry-bay,.eva-pilot-card')].every(n=>region(n)==='no-drag'));
+  check('语言、音乐和跳过操作均排除窗口拖动',[...boot.querySelectorAll('button')].every(n=>region(n)==='no-drag'));
+  for(const platform of ['win32','linux']){document.documentElement.dataset.platform=platform;check(platform+' 不强制设置启动拖动区域',region(boot)==='none')}
+  document.documentElement.dataset.platform='darwin';
+ }
+ boot.querySelector('.eva-pilot-card').click();boot.querySelector('.eva-boot-pick-voice').dispatchEvent(new Event('ended'));
+ check('装载主题仍可进入真实启动状态',boot.dataset.phase==='loading'&&!!app.closest('[inert]')&&!boot.closest('[inert]'));
+ if(withRoot)check('语音同步阶段保留窗口拖动及继续按钮',region(boot)==='drag'&&region(boot.querySelector('.eva-boot-resume'))==='no-drag');
+ boot.querySelector('.eva-boot-voice').dispatchEvent(new Event('ended'));
+ check('舱门交接不提前解除宿主隔离',boot.dataset.phase==='handoff'&&!!app.closest('[inert]')&&!boot.closest('[inert]'));
+ if(withRoot)check('舱门阶段可拖动窗口',region(boot)==='drag');
+ document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await wait();
+ check('退出恢复宿主与外部 portal，保留原有 inert',!!!app.closest('[inert]')&&!outside.inert&&host.querySelector('#pre-inert').inert&&!boot.isConnected);
+ const modal=realCreate.call(document,'div');modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');document.body.appendChild(modal);
+ check('移入 root 不影响宿主弹窗隐藏装饰层',getComputedStyle(layer).visibility==='hidden');modal.remove();
+ check('弹窗关闭恢复装饰层',getComputedStyle(layer).visibility==='visible');
+ for(const stop of effects.reverse())stop();check('卸载移除 root 内装饰和启动层',!document.querySelector('.eva-magi-layer,.eva-boot'));
+ host.remove();outside.remove();
+}
+}catch(e){check('窗口拖动回归无异常',false,String(e.stack||e))}
+finally{document.createElement=realCreate}
+document.querySelector('#RESULT').textContent=JSON.stringify({total:results.length,failed:results.filter(r=>!r.ok).length,failures:results.filter(r=>!r.ok)});
+})();
+</script></body></html>
