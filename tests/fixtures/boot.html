@@ -82,8 +82,13 @@ try{
   await wait(900);check('打字结束音效回收且未降背景音乐',!alertBoot.querySelector('.eva-intro-typing')&&Math.abs(music.volume-.28)<.01);check('打字结束保留完整标题阅读停留',alertBoot.dataset.phase==='intro'&&typed.textContent==='选择你的驾驶员');
   await until(()=>alertBoot.hasAttribute('data-arriving'));
   check('标题归位期间保持输入隔离与专用飞行文字',alertBoot.dataset.phase==='select'&&alertBoot.querySelector('.eva-boot-console').inert&&document.activeElement===alertBoot&&alertBoot.querySelector('.eva-intro-flight')?.textContent==='选择你的驾驶员');
+  const selectionConsole=alertBoot.querySelector('.eva-boot-console');
+  check('选择页只运行一次入场淡入，不叠加CSS阶段动画',getComputedStyle(selectionConsole).animationName==='none'&&selectionConsole.getAnimations().filter(animation=>animation.effect.target===selectionConsole).length===1);
   await until(()=>!alertBoot.hasAttribute('data-arriving'));
   check('归位完成回收引导并释放选择操作',!intro.isConnected&&!alertBoot.querySelector('.eva-intro-flight')&&!alertBoot.querySelector('.eva-boot-console').inert&&document.activeElement===alertBoot.querySelector('.eva-pilot-card'));
+  const settledTitle=alertBoot.querySelector('.eva-boot-title').getBoundingClientRect(),settledFrames=[];
+  for(let frame=0;frame<14;frame++){await new Promise(requestAnimationFrame);const title=alertBoot.querySelector('.eva-boot-title'),rect=title.getBoundingClientRect();settledFrames.push(Number(getComputedStyle(selectionConsole).opacity)>.99&&getComputedStyle(title).visibility==='visible'&&Math.abs(rect.left-settledTitle.left)<1&&Math.abs(rect.top-settledTitle.top)<1)}
+  check('引导退场后连续14帧保持完整可见且标题不跳动，避免二次淡入闪烁',settledFrames.every(Boolean)&&selectionConsole.getAnimations().length===0,JSON.stringify(settledFrames));
   check('警报衔接选择时背景音乐沿用同一音轨和位置',alertBoot.querySelector('.eva-boot-bgm')===music&&music.src===source&&!music.paused&&music.currentTime===12&&bgmPlayCalls===plays);
   alertBoot.querySelector('.eva-boot-exit').click();
   const skipped=start();skipped.querySelector('.eva-emergency-next').click();
@@ -174,6 +179,14 @@ try{
  if(!reduced)await wait(400);
  check('绫波丽语音页字体色与实际亮色主题一致',getComputedStyle(boot.querySelector('.eva-boot-loading h2')).color===getComputedStyle(document.querySelector('.eva-pilot-name')).color&&getComputedStyle(boot).backgroundColor===rgb(exports.PALETTE['bg-base'][0]));
  check('主题切换完成后回收扫光而不重启语音',!boot.querySelector('.eva-boot-theme-sweep')&&playCalls===1);
+ const reiState=mediaStates.get(reiAudio);
+ reiState.duration=NaN;reiAudio.currentTime=.65;reiAudio.dispatchEvent(new Event('timeupdate'));
+ check('官方客户端元数据未就绪时前10%已按文件采样时长推进',boot.querySelector('[role=progressbar]').getAttribute('aria-valuenow')==='9'&&boot.querySelector('.eva-sync-value').textContent==='09%'&&boot.querySelector('.eva-boot-progress-label time').textContent==='00:00 / 00:06');
+ reiState.duration=Infinity;reiAudio.currentTime=2;await wait(60);
+ check('无Content-Length且duration为Infinity时前半段仍同步刷新',boot.querySelector('[role=progressbar]').getAttribute('aria-valuenow')==='30'&&boot.querySelector('.eva-boot-progress-label time').textContent==='00:02 / 00:06');
+ await wait(60);check('元数据回退也只跟随真实播放位置，不按墙钟递增',boot.querySelector('[role=progressbar]').getAttribute('aria-valuenow')==='30');
+ reiState.duration=5;reiAudio.dispatchEvent(new Event('durationchange'));
+ check('有效durationchange立即校准进度而不等待下一次timeupdate',boot.querySelector('[role=progressbar]').getAttribute('aria-valuenow')==='40'&&boot.querySelector('.eva-boot-progress-label time').textContent==='00:02 / 00:05');
  reiAudio.currentTime=2.5;reiAudio.dispatchEvent(new Event('timeupdate'));
  check('进度精确跟随音频 currentTime / duration',boot.querySelector('[role=progressbar]').getAttribute('aria-valuenow')==='50'&&boot.querySelector('.eva-boot-progress-label time').textContent==='00:02 / 00:05',JSON.stringify({value:boot.querySelector('[role=progressbar]').getAttribute('aria-valuenow'),time:boot.querySelector('.eva-boot-progress-label time').textContent,media:mediaStates.get(reiAudio)}));
  const ringOffset=getComputedStyle(boot.querySelector('.eva-sync-ring-meter')).strokeDashoffset;
@@ -212,6 +225,7 @@ try{
  check('欢迎语音真实解码且时长约3秒',await decode(welcomeSource)>2);
  check('清理保留宿主原有 inert 状态',document.querySelector('#pre-inert').inert);
  const reiDuration=await decode(reiSource);check('用户提供的绫波丽 MP3 可真实解码且约 6.6 秒',reiDuration>6&&reiDuration<7,String(reiDuration));
+ check('绫波丽构建采样时长与浏览器真实解码误差小于1毫秒',Math.abs(reiDuration-6.556735)<.001,String(reiDuration));
  const bgmDuration=await decode(bgmSource);check('原版 EM20 MP3 可真实解码且约 3 分 55 秒',bgmDuration>234&&bgmDuration<236,String(bgmDuration));
  boot=open();failPlay=true;boot.querySelector('[data-pilot=asuka]').click();await wait(reduced?20:700);
  const asukaAudio=boot.querySelector('audio'),asukaSource=asukaAudio.src;
@@ -219,6 +233,9 @@ try{
  check('明日香语音页字体色与实际暗色主题一致',getComputedStyle(boot.querySelector('.eva-boot-loading h2')).color===getComputedStyle(document.querySelector('.eva-pilot-name')).color&&getComputedStyle(boot).backgroundColor===rgb(exports.PALETTE['bg-base'][1]));
  check('浏览器阻止播放时显示重试，进度保持零',!boot.querySelector('.eva-boot-resume').hidden&&boot.querySelector('[role=progressbar]').getAttribute('aria-valuenow')==='0');
  boot.querySelector('.eva-boot-resume').click();await wait();check('语音重试可继续同一流程',!asukaAudio.paused&&boot.querySelector('.eva-boot-resume').hidden);
+ mediaStates.get(asukaAudio).duration=Infinity;asukaAudio.currentTime=.67;asukaAudio.dispatchEvent(new Event('timeupdate'));
+ check('明日香使用自身MP3采样时长，元数据未知时同样从前10%推进',boot.querySelector('[role=progressbar]').getAttribute('aria-valuenow')==='9');
+ mediaStates.get(asukaAudio).duration=8;asukaAudio.dispatchEvent(new Event('durationchange'));
  asukaAudio.currentTime=4;asukaAudio.dispatchEvent(new Event('timeupdate'));
  check('不同语音时长按各自比例计算进度',boot.querySelector('[role=progressbar]').getAttribute('aria-valuenow')==='50'&&boot.querySelector('.eva-boot-progress-label time').textContent==='00:04 / 00:08',JSON.stringify({value:boot.querySelector('[role=progressbar]').getAttribute('aria-valuenow'),time:boot.querySelector('.eva-boot-progress-label time').textContent,media:mediaStates.get(asukaAudio)}));
  asukaAudio.dispatchEvent(new Event('error'));check('播放错误不会假装加载完成或直接进入',boot.dataset.phase==='loading'&&!boot.querySelector('.eva-boot-resume').hidden);
@@ -226,6 +243,7 @@ try{
  boot.querySelector('[data-boot-language="zh-CN"]').click();
  boot.querySelector('.eva-boot-exit').click();check('错误时仍可跳过且立即回收音频',!boot.isConnected&&asukaAudio.paused&&!asukaAudio.hasAttribute('src'));
  const asukaDuration=await decode(asukaSource);check('用户提供的明日香 MP3 可真实解码且约 6.7 秒',asukaDuration>6&&asukaDuration<7,String(asukaDuration));
+ check('明日香构建采样时长与浏览器真实解码误差小于1毫秒',Math.abs(asukaDuration-6.713469)<.001,String(asukaDuration));
  holdPick=true;boot=open();const pick=boot.querySelector('.eva-boot-pick-voice'),beforePick=pickCalls,beforeStartup=playCalls;
  const first=boot.querySelector('[data-pilot=asuka]'),second=boot.querySelector('[data-pilot=rei]'),drop=boot.querySelector('.eva-entry-bay').getBoundingClientRect();
  const firstBox=first.getBoundingClientRect(),secondBox=second.getBoundingClientRect();

@@ -53,7 +53,8 @@
       "file": "audio/asuka-voice-boot.mp3",
       "type": "audio/mpeg",
       "bytes": 107483,
-      "sha256": "8215dd8831b56e4d9a43278c269fafaf50aa29606b24d50ecec8ed05f8b1b7df"
+      "sha256": "8215dd8831b56e4d9a43278c269fafaf50aa29606b24d50ecec8ed05f8b1b7df",
+      "durationSeconds": 6.713469
     },
     "asukaPickVoice": {
       "file": "audio/asuka-voice-select.mp3",
@@ -89,7 +90,8 @@
       "file": "audio/rei-voice-boot.mp3",
       "type": "audio/mpeg",
       "bytes": 104975,
-      "sha256": "4a4aad865e71ddfa8b4eeec5c8936c4a2d7e434d548aa2fb31b7b0e415260f74"
+      "sha256": "4a4aad865e71ddfa8b4eeec5c8936c4a2d7e434d548aa2fb31b7b0e415260f74",
+      "durationSeconds": 6.556735
     },
     "reiPickVoice": {
       "file": "audio/rei-voice-select.mp3",

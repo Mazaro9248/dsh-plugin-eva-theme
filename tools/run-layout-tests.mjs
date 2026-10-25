@@ -49,11 +49,14 @@ try{
 							const events=await command("Runtime.evaluate",{returnByValue:true,expression:"({events:window.dragEvents,ghost:!!document.querySelector('.eva-pilot-ghost'),over:document.querySelector('.eva-entry-bay')?.dataset.over})"});
 							report.failed++;report.failures.push({name:pilot+"：真实鼠标"+(pilot==="asuka"?"拖放":"点击")+"装载后开始语音",detail:JSON.stringify(events.result.value)});continue;
 						}
-						let sawProgress=false,accurate=true,realRun,lastSnapshot;
+						let sawProgress=false,sawEarlyProgress=false,accurate=true,realRun,lastSnapshot;
 						for(let sample=0;sample<120;sample++){
 							const {result}=await command("Runtime.evaluate",{returnByValue:true,expression:"(()=>{const boot=document.querySelector('.eva-boot'),audio=boot?.querySelector('.eva-boot-voice'),bgm=boot?.querySelector('.eva-boot-bgm');if(bgm&&!bgm.paused&&bgm.volume<.09&&audio?.currentTime>1)window.productionRun.bgmDucked=true;return {run:window.productionRun,phase:boot?.dataset.phase,value:Number(boot?.querySelector('[role=progressbar]')?.getAttribute('aria-valuenow')),position:audio?.currentTime,duration:audio?.duration,paused:audio?.paused,readyState:audio?.readyState,status:boot?.querySelector('.eva-boot-status')?.textContent}})()"});
 							const snapshot=result.value;realRun=snapshot.run;lastSnapshot={...snapshot,run:undefined};
-							if(snapshot.phase==="loading"&&snapshot.value>0&&snapshot.value<100){sawProgress=true;accurate&&=Math.abs(snapshot.value-snapshot.position/snapshot.duration*100)<3;}
+							if(snapshot.phase==="loading"&&snapshot.position>.15&&snapshot.position<snapshot.duration){
+								sawProgress||=snapshot.value>0;accurate&&=Math.abs(snapshot.value-snapshot.position/snapshot.duration*100)<3;
+								sawEarlyProgress||=snapshot.position/snapshot.duration<.25&&snapshot.value>0;
+							}
 							if(realRun.enteredAt)break;
 							await wait(100);
 						}
@@ -62,6 +65,7 @@ try{
 							["真实 MP3 完整播放至 ended 才开始衔接",realRun.endedAt>0&&realRun.phaseAtEnd==="handoff"],
 							["完整语音后舱门交接约 1.6 秒进入聊天",realRun.enteredAt-realRun.endedAt>=1450&&realRun.enteredAt-realRun.endedAt<2200],
 							["真实音频时钟持续推进且进度同步",sawProgress&&accurate],
+							["真实语音前25%已显示进度，不能等到后半段才开始",sawEarlyProgress],
 							["播放的真实语音时长约 6.6 秒",realRun.duration>6&&realRun.duration<7],
 							["真实背景音乐播放并为语音降音，进入聊天后停止",realRun.bgmStarted&&realRun.bgmDucked&&realRun.bgmStopped],
 						]){report.total++;if(!ok){report.failed++;report.failures.push({name:pilot+"："+name,detail:JSON.stringify({run:realRun,last:lastSnapshot})});}}

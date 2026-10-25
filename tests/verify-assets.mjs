@@ -11,6 +11,7 @@ for (const [key,asset] of Object.entries(manifest.assets)) {
  const bytes=readFileSync(new URL(asset.file,root));assert.equal(bytes.length,asset.bytes);assert.equal(createHash('sha256').update(bytes).digest('hex'),asset.sha256);checks+=4;
  assert.match(asset.file,/^[a-z-]+\/[a-z0-9-]+\.[a-z0-9]+$/);checks++;
  const client=readFileSync(new URL('../lib/client.js',import.meta.url),'utf8');
+ if (key==='asukaVoice'||key==='reiVoice') {assert(asset.durationSeconds>6&&asset.durationSeconds<7);assert(client.includes(key+'Duration: '+asset.durationSeconds+','));checks+=2;}
  if (!asset.inline) assert(client.includes(ASSET_BASE+asset.file+'?v='+asset.sha256.slice(0,12)),key+' is not referenced');
  else assert(client.includes(JSON.stringify(bytes.toString('utf8'))),key+' inline markup differs');checks++;
 }
